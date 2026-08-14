@@ -153,6 +153,9 @@ jobs:
         (github.event_name == 'workflow_dispatch' && !inputs.dry_run && needs.prepare.result == 'success'))
       }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      KANDEV_PLUGIN_E2E_URL: ${{ secrets.KANDEV_PLUGIN_E2E_URL }}
     steps:
       - name: Checkout plugin
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
@@ -170,17 +173,15 @@ jobs:
           min_kandev_version="$(sed -nE 's/^min_kandev_version: "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' manifest.yaml)"
           test "$RELEASE_TAG" = "v$version"
           test -n "$min_kandev_version" || { echo "min_kandev_version must name the released compatible host"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "min_kandev_version=$min_kandev_version" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout kandev SDK
+      - name: Checkout minimum supported Kandev host
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           repository: kdlbs/kandev
           ref: v${{ steps.manifest.outputs.min_kandev_version }}
           path: kandev
-          sparse-checkout: |
-            apps/backend
-            apps/packages/plugin-sdk
 
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
@@ -188,16 +189,22 @@ jobs:
           go-version-file: plugin/go.mod
           cache-dependency-path: plugin/go.sum
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@a8198c4bff370c8506180b035930dea56dbd5288 # v5
+        with:
+          version: 9.15.9
+
       - name: Set up Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: plugin/package-lock.json
+          cache: pnpm
+          cache-dependency-path: kandev/apps/pnpm-lock.yaml
 
-      - name: Install UI dependencies
-        working-directory: plugin
-        run: npm ci
+      - name: Install plugin and host dependencies
+        run: |
+          cd plugin && npm ci
+          cd ../kandev/apps && pnpm install --frozen-lockfile
 
       - name: Verify
         working-directory: plugin
@@ -206,15 +213,42 @@ jobs:
           make vet
           make test
 
-      - name: Exercise the packaged plugin in Kandev
-        working-directory: plugin
-        env:
-          KANDEV_PLUGIN_E2E_URL: ${{ secrets.KANDEV_PLUGIN_E2E_URL }}
-        run: make e2e
-
       - name: Package (all platforms)
         working-directory: plugin
         run: make package verify-package
+
+      - name: Build disposable Kandev test host
+        working-directory: kandev
+        run: |
+          make build-backend build-web-e2e
+          make -C apps/backend e2e-plugin-package
+
+      - name: Install Playwright Chromium
+        working-directory: kandev/apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Exercise release package on desktop and mobile surfaces
+        working-directory: kandev/apps/web
+        env:
+          KANDEV_BITBUCKET_PLUGIN_PACKAGE: ${{ github.workspace }}/plugin/kandev-plugin-bitbucket-${{ steps.manifest.outputs.version }}.tar.gz
+        run: >-
+          pnpm e2e:raw --project=chromium
+          tests/plugins/bitbucket-packaged-plugin.spec.ts
+
+      - name: Exercise optional external Kandev host
+        if: ${{ env.KANDEV_PLUGIN_E2E_URL != '' }}
+        working-directory: plugin
+        env:
+          KANDEV_PLUGIN_E2E_PACKAGE: ${{ github.workspace }}/plugin/kandev-plugin-bitbucket-${{ steps.manifest.outputs.version }}.tar.gz
+        run: npm run e2e:contract
+
+      - name: Report unavailable external-host smoke test
+        if: ${{ env.KANDEV_PLUGIN_E2E_URL == '' }}
+        run: >-
+          echo "::notice title=External-host smoke test unavailable::Configure
+          KANDEV_PLUGIN_E2E_URL to add an external disposable-host smoke test.
+          The required packaged-host contract passed against the minimum
+          supported Kandev release."
 
       - name: Extract checksums
         working-directory: plugin

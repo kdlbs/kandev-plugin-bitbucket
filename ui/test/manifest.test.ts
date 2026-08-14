@@ -19,9 +19,9 @@ describe("Bitbucket manifest", () => {
     expect(manifest).toContain('min_kandev_version: "0.88.0"');
   });
 
-  it("materializes both Kandev SDKs in every packaging workflow", async () => {
+  it("materializes both Kandev SDKs in pull request packaging workflows", async () => {
     const workflows = await Promise.all(
-      ["build.yml", "ci.yml", "release.yml"].map((name) =>
+      ["build.yml", "ci.yml"].map((name) =>
         readFile(new URL(`../../.github/workflows/${name}`, import.meta.url), "utf8"),
       ),
     );
@@ -30,6 +30,17 @@ describe("Bitbucket manifest", () => {
       expect(workflow).toContain("apps/backend");
       expect(workflow).toContain("apps/packages/plugin-sdk");
     }
+  });
+
+  it("checks out the complete minimum host for release package validation", async () => {
+    const workflow = await readFile(
+      new URL("../../.github/workflows/release.yml", import.meta.url),
+      "utf8",
+    );
+
+    expect(workflow).toContain("Checkout minimum supported Kandev host");
+    expect(workflow).toContain("path: kandev");
+    expect(workflow).not.toContain("sparse-checkout:");
   });
 
   it("tests pull requests against the declared minimum Kandev release", async () => {
@@ -45,5 +56,16 @@ describe("Bitbucket manifest", () => {
     for (const workflow of workflows) {
       expect(workflow).toContain(`ref: v${minimumVersion}`);
     }
+  });
+
+  it("gates releases on the packaged desktop and mobile host contract", async () => {
+    const workflow = await readFile(
+      new URL("../../.github/workflows/release.yml", import.meta.url),
+      "utf8",
+    );
+
+    expect(workflow).toContain("tests/plugins/bitbucket-packaged-plugin.spec.ts");
+    expect(workflow).toContain("KANDEV_BITBUCKET_PLUGIN_PACKAGE:");
+    expect(workflow).toMatch(/Exercise optional external Kandev host[\s\S]*if:/);
   });
 });
