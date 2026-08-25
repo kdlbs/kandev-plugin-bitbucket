@@ -134,7 +134,9 @@ configure it for the active Kandev workspace:
   identities need equivalent repository read/write authority for the full
   workflow.
 - For OAuth, copy the callback URL shown by the plugin into the Bitbucket OAuth
-  consumer before starting the browser flow.
+  consumer before starting the browser flow. Callback URLs must use HTTPS,
+  except that local development callbacks may use HTTP on `localhost` or a
+  loopback IP address.
 
 Connection settings are workspace-specific. Tokens, OAuth refresh tokens, and
 client secrets are held as plugin secrets; they are never shown after save.

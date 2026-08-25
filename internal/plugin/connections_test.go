@@ -367,6 +367,40 @@ func TestConnectionResolver_ReusesSavedOAuthRegistrationWithoutSecretReentry(t *
 	require.Contains(t, host.secrets[oauthRegistrationSecretKey("workspace-1", second.OAuthGeneration)], "client-secret")
 }
 
+func TestConnectionResolver_AllowsHTTPOnlyForLoopbackOAuthRedirects(t *testing.T) {
+	tests := []struct {
+		name        string
+		redirectURL string
+		wantError   bool
+	}{
+		{name: "https", redirectURL: "https://kandev.example.test/callback"},
+		{name: "localhost", redirectURL: "http://localhost:38429/api/plugins/kandev-plugin-bitbucket/webhooks/oauth-callback"},
+		{name: "IPv4 loopback", redirectURL: "http://127.0.0.1:38429/callback"},
+		{name: "IPv6 loopback", redirectURL: "http://[::1]:38429/callback"},
+		{name: "non-loopback HTTP", redirectURL: "http://kandev.example.test/callback", wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			host := newConnectionHost()
+			resolver, err := NewConnectionResolver(host)
+			require.NoError(t, err)
+			_, err = resolver.Save(context.Background(), "workspace-1", ConnectionInput{
+				Product: domain.ProductCloud, CloudWorkspace: "acme", AuthMethod: "oauth",
+				OAuthClientID: "client-id", OAuthClientSecret: "client-secret", OAuthRedirectURL: test.redirectURL,
+			})
+			if test.wantError {
+				require.Error(t, err)
+				require.Empty(t, host.state)
+				require.Empty(t, host.secrets)
+				return
+			}
+			require.NoError(t, err)
+			require.NotEmpty(t, host.state)
+			require.NotEmpty(t, host.secrets)
+		})
+	}
+}
+
 func TestConnectionResolver_RejectsOAuthRegistrationReuseWhenSecretWasRevoked(t *testing.T) {
 	host := newConnectionHost()
 	resolver, err := NewConnectionResolver(host)

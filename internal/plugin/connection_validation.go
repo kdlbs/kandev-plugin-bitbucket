@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 
@@ -116,4 +117,22 @@ func validateHTTPSURL(raw, label string) error {
 		return fmt.Errorf("%s must be a credential-free HTTPS URL", label)
 	}
 	return nil
+}
+
+func validateOAuthRedirectURL(raw, label string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return fmt.Errorf("%s must be a credential-free URL without a query or fragment", label)
+	}
+	if parsed.Scheme == "https" {
+		return nil
+	}
+	if parsed.Scheme == "http" && isLoopbackHostname(parsed.Hostname()) {
+		return nil
+	}
+	return fmt.Errorf("%s must use HTTPS unless it targets localhost or a loopback IP address", label)
+}
+
+func isLoopbackHostname(hostname string) bool {
+	return strings.EqualFold(hostname, "localhost") || net.ParseIP(hostname).IsLoopback()
 }

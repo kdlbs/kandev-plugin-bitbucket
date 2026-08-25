@@ -139,7 +139,7 @@ func (r *ConnectionResolver) configureOAuthSettings(
 	}
 	settings.OAuthClientID = clientID
 	settings.OAuthRedirectURL = redirectURL
-	if err := validateHTTPSURL(settings.OAuthRedirectURL, "Bitbucket OAuth redirect URL"); err != nil {
+	if err := validateOAuthRedirectURL(settings.OAuthRedirectURL, "Bitbucket OAuth redirect URL"); err != nil {
 		return invalidConnectionInput("%v", err)
 	}
 	settings.OAuthGeneration = previous.OAuthGeneration + 1

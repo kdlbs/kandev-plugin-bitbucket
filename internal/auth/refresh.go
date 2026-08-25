@@ -61,7 +61,7 @@ func StartAuthorization(ctx context.Context, states *StateManager, scope Credent
 	if err := validateHTTPSURL(registration.AuthorizationURL, "authorization endpoint"); err != nil {
 		return AuthorizationRequest{}, err
 	}
-	if err := validateHTTPSURL(registration.RedirectURL, "redirect URL"); err != nil {
+	if err := validateOAuthRedirectURL(registration.RedirectURL); err != nil {
 		return AuthorizationRequest{}, err
 	}
 	pending, err := states.Start(ctx, scope.WorkspaceID, scope.Generation)
@@ -291,6 +291,23 @@ func validateHTTPSURL(value *url.URL, name string) error {
 		return fmt.Errorf("OAuth %s must use HTTPS without credentials, query, or fragment", name)
 	}
 	return nil
+}
+
+func validateOAuthRedirectURL(value *url.URL) error {
+	if value.User != nil || value.Hostname() == "" || value.RawQuery != "" || value.Fragment != "" {
+		return fmt.Errorf("OAuth redirect URL must not contain credentials, a query, or a fragment")
+	}
+	if value.Scheme == "https" {
+		return nil
+	}
+	if value.Scheme == "http" && isLoopbackHostname(value.Hostname()) {
+		return nil
+	}
+	return fmt.Errorf("OAuth redirect URL must use HTTPS unless it targets localhost or a loopback IP address")
+}
+
+func isLoopbackHostname(hostname string) bool {
+	return strings.EqualFold(hostname, "localhost") || net.ParseIP(hostname).IsLoopback()
 }
 
 func readBounded(body io.Reader, maxBytes int64) ([]byte, error) {

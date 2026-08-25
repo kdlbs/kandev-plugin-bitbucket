@@ -54,3 +54,52 @@ func TestAuthorizationCodeExchangeUsesPKCEAndRejectsCallbackReplay(t *testing.T)
 	_, err = refresher.ExchangeAuthorizationCode(context.Background(), states, request.State, "code-from-provider", registration)
 	require.ErrorIs(t, err, ErrStateReplay)
 }
+
+func TestStartAuthorizationAllowsHTTPOnlyForLoopbackRedirects(t *testing.T) {
+	authorizationURL, err := url.Parse("https://bitbucket.org/site/oauth2/authorize")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		redirectURL string
+		wantError   bool
+	}{
+		{name: "https", redirectURL: "https://kandev.example.test/callback"},
+		{name: "localhost", redirectURL: "http://localhost:38429/callback"},
+		{name: "IPv4 loopback", redirectURL: "http://127.0.0.1:38429/callback"},
+		{name: "IPv6 loopback", redirectURL: "http://[::1]:38429/callback"},
+		{name: "non-loopback HTTP", redirectURL: "http://kandev.example.test/callback", wantError: true},
+		{name: "credentials", redirectURL: "http://user@localhost:38429/callback", wantError: true},
+		{name: "query", redirectURL: "http://localhost:38429/callback?next=other", wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			redirectURL, parseErr := url.Parse(test.redirectURL)
+			require.NoError(t, parseErr)
+			states, stateErr := NewStateManager([]byte("01234567890123456789012345678901"), NewMemoryPendingStore(), time.Now)
+			require.NoError(t, stateErr)
+			_, startErr := StartAuthorization(context.Background(), states, CredentialScope{WorkspaceID: "workspace-a", Generation: 1}, OAuthRegistration{
+				ClientID: "client-id", AuthorizationURL: authorizationURL, RedirectURL: redirectURL,
+			}, nil)
+			if test.wantError {
+				require.Error(t, startErr)
+				return
+			}
+			require.NoError(t, startErr)
+		})
+	}
+}
+
+func TestStartAuthorizationStillRequiresHTTPSAuthorizationEndpoint(t *testing.T) {
+	authorizationURL, err := url.Parse("http://localhost:38429/authorize")
+	require.NoError(t, err)
+	redirectURL, err := url.Parse("http://localhost:38429/callback")
+	require.NoError(t, err)
+	states, err := NewStateManager([]byte("01234567890123456789012345678901"), NewMemoryPendingStore(), time.Now)
+	require.NoError(t, err)
+
+	_, err = StartAuthorization(context.Background(), states, CredentialScope{WorkspaceID: "workspace-a", Generation: 1}, OAuthRegistration{
+		ClientID: "client-id", AuthorizationURL: authorizationURL, RedirectURL: redirectURL,
+	}, nil)
+	require.ErrorContains(t, err, "authorization endpoint must use HTTPS")
+}
