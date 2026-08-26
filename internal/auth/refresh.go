@@ -61,7 +61,7 @@ func StartAuthorization(ctx context.Context, states *StateManager, scope Credent
 	if err := validateHTTPSURL(registration.AuthorizationURL, "authorization endpoint"); err != nil {
 		return AuthorizationRequest{}, err
 	}
-	if err := validateOAuthRedirectURL(registration.RedirectURL); err != nil {
+	if err := ValidateOAuthRedirectURL(registration.RedirectURL); err != nil {
 		return AuthorizationRequest{}, err
 	}
 	pending, err := states.Start(ctx, scope.WorkspaceID, scope.Generation)
@@ -293,8 +293,9 @@ func validateHTTPSURL(value *url.URL, name string) error {
 	return nil
 }
 
-func validateOAuthRedirectURL(value *url.URL) error {
-	if value.User != nil || value.Hostname() == "" || value.RawQuery != "" || value.Fragment != "" {
+// ValidateOAuthRedirectURL validates the callback URL used by an OAuth flow.
+func ValidateOAuthRedirectURL(value *url.URL) error {
+	if value == nil || value.User != nil || value.Hostname() == "" || value.RawQuery != "" || value.Fragment != "" {
 		return fmt.Errorf("OAuth redirect URL must not contain credentials, a query, or a fragment")
 	}
 	if value.Scheme == "https" {

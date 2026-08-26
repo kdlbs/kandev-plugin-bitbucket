@@ -71,6 +71,7 @@ func TestStartAuthorizationAllowsHTTPOnlyForLoopbackRedirects(t *testing.T) {
 		{name: "non-loopback HTTP", redirectURL: "http://kandev.example.test/callback", wantError: true},
 		{name: "credentials", redirectURL: "http://user@localhost:38429/callback", wantError: true},
 		{name: "query", redirectURL: "http://localhost:38429/callback?next=other", wantError: true},
+		{name: "fragment", redirectURL: "http://localhost:38429/callback#fragment", wantError: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

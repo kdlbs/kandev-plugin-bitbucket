@@ -2,10 +2,10 @@ package plugin
 
 import (
 	"fmt"
-	"net"
 	"net/url"
 	"strings"
 
+	"kandev-plugin-bitbucket/internal/auth"
 	"kandev-plugin-bitbucket/internal/cloud"
 	"kandev-plugin-bitbucket/internal/datacenter"
 	"kandev-plugin-bitbucket/internal/domain"
@@ -121,18 +121,11 @@ func validateHTTPSURL(raw, label string) error {
 
 func validateOAuthRedirectURL(raw, label string) error {
 	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+	if err != nil {
 		return fmt.Errorf("%s must be a credential-free URL without a query or fragment", label)
 	}
-	if parsed.Scheme == "https" {
-		return nil
+	if err := auth.ValidateOAuthRedirectURL(parsed); err != nil {
+		return fmt.Errorf("%s: %w", label, err)
 	}
-	if parsed.Scheme == "http" && isLoopbackHostname(parsed.Hostname()) {
-		return nil
-	}
-	return fmt.Errorf("%s must use HTTPS unless it targets localhost or a loopback IP address", label)
-}
-
-func isLoopbackHostname(hostname string) bool {
-	return strings.EqualFold(hostname, "localhost") || net.ParseIP(hostname).IsLoopback()
+	return nil
 }
