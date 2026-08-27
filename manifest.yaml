@@ -4,7 +4,7 @@ version: "0.3.0"
 min_kandev_version: "0.88.0"
 display_name: "Bitbucket"
 description: "Connect Bitbucket Cloud or Data Center to native Kandev repository, pull-request, task, review, and watch workflows."
-author: "kandev"
+author: "ahmedbally"
 categories: ["connector"]
 repo_url: "https://github.com/kdlbs/kandev-plugin-bitbucket"
 icon: "assets/icon.svg"
