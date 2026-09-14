@@ -215,9 +215,9 @@ func (c *Client) ResolveGitCredential(ctx context.Context) (domain.GitCredential
 	return domain.GitCredential{Username: username, Secret: token, ExpiresAt: expiresAt}, nil
 }
 
-// ListBranches lists matching branches from the Cloud v2 branch endpoint.
+// ListBranches lists all branches from the Cloud v2 branch endpoint.
 func (c *Client) ListBranches(ctx context.Context, repository domain.Repository) ([]domain.Branch, error) {
-	return c.listBranches(ctx, repository, "", maxPageLength)
+	return c.listBranches(ctx, repository, "", maxBranchEntries)
 }
 func (c *Client) listBranches(ctx context.Context, repository domain.Repository, search string, limit int) ([]domain.Branch, error) {
 	if err := validateRepository(repository); err != nil {
@@ -235,7 +235,12 @@ func (c *Client) listBranches(ctx context.Context, repository domain.Repository,
 	endpoint.RawQuery = query.Encode()
 
 	var branches []domain.Branch
-	for next := &endpoint; next != nil && len(branches) < limit; {
+	pages := 0
+	next := &endpoint
+	for next != nil && len(branches) < limit {
+		if pages >= maxBranchPages {
+			return nil, fmt.Errorf("Cloud branch pagination limit exceeded")
+		}
 		var page branchPage
 		if err := c.getJSON(ctx, next, &page); err != nil {
 			return nil, err
@@ -254,6 +259,10 @@ func (c *Client) listBranches(ctx context.Context, repository domain.Repository,
 		if err != nil {
 			return nil, err
 		}
+		pages++
+	}
+	if next != nil {
+		return nil, fmt.Errorf("Cloud branch limit exceeded")
 	}
 	return branches, nil
 }

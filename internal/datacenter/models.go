@@ -149,3 +149,8 @@ const (
 	maxReviewEntries  = 200
 	maxReviewPages    = 10
 )
+
+const (
+	maxBranchPages   = 200
+	maxBranchEntries = maxBranchPages * maxPageLength
+)

@@ -12,6 +12,11 @@ type branchPage struct {
 	Next string `json:"next"`
 }
 
+const (
+	maxBranchPages   = 200
+	maxBranchEntries = maxBranchPages * maxPageLength
+)
+
 type pullRequestPage struct {
 	Values []pullRequestPayload `json:"values"`
 	Next   string               `json:"next"`

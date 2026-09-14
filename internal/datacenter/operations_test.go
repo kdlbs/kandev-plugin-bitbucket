@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -57,6 +58,57 @@ func TestDataCenterListsBranchesAndPullRequestsWithStartLimitPagination(t *testi
 	require.Equal(t, "main", gotPullRequests[0].Repository.DefaultBranch)
 	require.Equal(t, server.URL+"/bitbucket/scm/ENG/widgets.git", gotPullRequests[0].Repository.CloneURL.String())
 	require.Equal(t, server.URL+"/bitbucket/projects/ENG/repos/widgets/pull-requests/42", gotPullRequests[0].URL)
+}
+
+func TestDataCenterListBranchesPagesThroughAllBranches(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "Bearer dc-token", r.Header.Get("Authorization"))
+		require.Equal(t, "/bitbucket/rest/api/latest/projects/ENG/repos/widgets/branches", r.URL.Path)
+		require.Equal(t, "100", r.URL.Query().Get("limit"))
+		switch r.URL.Query().Get("start") {
+		case "0":
+			_, _ = w.Write([]byte(`{"isLastPage":false,"nextPageStart":2,"values":[{"displayId":"one","latestCommit":"commit-1"},{"displayId":"two","latestCommit":"commit-2"}]}`))
+		case "2":
+			_, _ = w.Write([]byte(`{"isLastPage":true,"nextPageStart":2,"values":[{"displayId":"three","latestCommit":"commit-3"},{"displayId":"four","latestCommit":"commit-4"}]}`))
+		default:
+			t.Fatalf("unexpected branch start %q", r.URL.Query().Get("start"))
+		}
+	}))
+	defer server.Close()
+	client, err := NewClient(ClientOptions{
+		ConnectionOptions: ConnectionOptions{BaseURL: server.URL + "/bitbucket", AllowInsecureHTTP: true},
+		HTTPClient:        server.Client(),
+		TokenSource:       staticTokenSource("dc-token"),
+	})
+	require.NoError(t, err)
+
+	branches, err := client.ListBranches(context.Background(), domain.Repository{Namespace: "ENG", Slug: "widgets"})
+	require.NoError(t, err)
+	require.Equal(t, []domain.Branch{
+		{Name: "one", Commit: "commit-1"},
+		{Name: "two", Commit: "commit-2"},
+		{Name: "three", Commit: "commit-3"},
+		{Name: "four", Commit: "commit-4"},
+	}, branches)
+}
+
+func TestDataCenterListBranchesRejectsEndlessPagination(t *testing.T) {
+	nextStart := 1
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/bitbucket/rest/api/latest/projects/ENG/repos/widgets/branches", r.URL.Path)
+		_, _ = fmt.Fprintf(w, `{"isLastPage":false,"nextPageStart":%d,"values":[]}`, nextStart)
+		nextStart++
+	}))
+	defer server.Close()
+	client, err := NewClient(ClientOptions{
+		ConnectionOptions: ConnectionOptions{BaseURL: server.URL + "/bitbucket", AllowInsecureHTTP: true},
+		HTTPClient:        server.Client(),
+		TokenSource:       staticTokenSource("dc-token"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.ListBranches(context.Background(), domain.Repository{Namespace: "ENG", Slug: "widgets"})
+	require.ErrorContains(t, err, "Data Center branch pagination limit exceeded")
 }
 
 func TestDataCenterSearchPullRequestsUsesRequestedState(t *testing.T) {
