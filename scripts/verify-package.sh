@@ -19,6 +19,8 @@ for required in manifest.yaml assets/icon.svg assets/NOTICE.md ui/bundle.js ui/p
 	[ -f "$package_dir/$required" ] || fail "missing required file: $required"
 done
 
+grep -Fx 'id: "kandev-plugin-bitbucket"' "$package_dir/manifest.yaml" >/dev/null || fail 'manifest plugin id does not match this plugin'
+grep -Fx 'api_version: 1' "$package_dir/manifest.yaml" >/dev/null || fail 'manifest API version is not supported'
 grep -Fx 'icon: "assets/icon.svg"' "$package_dir/manifest.yaml" >/dev/null || fail 'manifest icon path does not match the package'
 
 manifest_executables=$(awk '

@@ -109,6 +109,18 @@ copy_fixture corrupt-ui
 printf '/* changed after checksum generation */\n' >> "$test_dir/corrupt-ui/ui/plugin.css"
 expect_failure 'corrupt UI contents' "$test_dir/corrupt-ui"
 
+copy_fixture wrong-id
+sed 's/^id: "kandev-plugin-bitbucket"$/id: "other-plugin"/' "$test_dir/wrong-id/manifest.yaml" > "$test_dir/wrong-id/manifest.next"
+mv "$test_dir/wrong-id/manifest.next" "$test_dir/wrong-id/manifest.yaml"
+write_checksums "$test_dir/wrong-id"
+expect_failure 'a manifest for a different plugin id' "$test_dir/wrong-id"
+
+copy_fixture wrong-api-version
+sed 's/^api_version: 1$/api_version: 2/' "$test_dir/wrong-api-version/manifest.yaml" > "$test_dir/wrong-api-version/manifest.next"
+mv "$test_dir/wrong-api-version/manifest.next" "$test_dir/wrong-api-version/manifest.yaml"
+write_checksums "$test_dir/wrong-api-version"
+expect_failure 'an unsupported manifest API version' "$test_dir/wrong-api-version"
+
 copy_fixture incomplete-checksums
 sed '/  ui\/plugin.css$/d' "$test_dir/incomplete-checksums/checksums.txt" > "$test_dir/incomplete-checksums/checksums.next"
 mv "$test_dir/incomplete-checksums/checksums.next" "$test_dir/incomplete-checksums/checksums.txt"

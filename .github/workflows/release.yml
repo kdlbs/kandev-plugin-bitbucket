@@ -211,7 +211,7 @@ jobs:
           make vet
           make test
           make package verify-package
-          PACKAGE_FILE="$(make -s package-file)"
+          PACKAGE_FILE="$(make --no-print-directory -s package-file)"
           sh scripts/verify-release-version.sh "$TAG" "$PACKAGE_FILE"
           echo "package=$PACKAGE_FILE" >> "$GITHUB_OUTPUT"
 
@@ -350,7 +350,7 @@ jobs:
           make vet
           make test
           make package verify-package
-          PACKAGE_FILE="$(make -s package-file)"
+          PACKAGE_FILE="$(make --no-print-directory -s package-file)"
           sh scripts/verify-release-version.sh "$TAG" "$PACKAGE_FILE"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "package=$PACKAGE_FILE" >> "$GITHUB_OUTPUT"
