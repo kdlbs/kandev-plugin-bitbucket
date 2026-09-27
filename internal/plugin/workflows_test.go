@@ -859,6 +859,10 @@ func (*associationTaskReader) Update(context.Context, pluginsdk.UpdateTaskInput)
 	return nil, nil
 }
 
+func (*associationTaskReader) Move(context.Context, pluginsdk.MoveTaskInput) (*pluginsdk.MoveTaskOutcome, error) {
+	return nil, errors.New("associationTaskReader.Move is not implemented")
+}
+
 type associationHost struct {
 	*connectionHost
 	tasks *associationTaskReader

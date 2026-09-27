@@ -18,20 +18,25 @@ jobs:
     env:
       KANDEV_PLUGIN_E2E_URL: ${{ secrets.KANDEV_PLUGIN_E2E_URL }}
     steps:
-      # The local SDK replacement in go.mod expects these checkouts to be
-      # siblings: plugin/../kandev/apps/backend.
       - name: Check out plugin
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           path: plugin
 
-      - name: Check out kandev SDK
+      - name: Read pinned Kandev source revision
+        id: sdk
+        working-directory: plugin
+        run: |
+          set -euo pipefail
+          sdk_ref="$(cat .kandev-sdk-ref)"
+          [[ "$sdk_ref" =~ ^[0-9a-f]{40}$ ]]
+          echo "ref=$sdk_ref" >> "$GITHUB_OUTPUT"
+
+      - name: Check out Kandev SDK source
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           repository: kdlbs/kandev
-          # Keep this aligned with manifest.min_kandev_version so PR checks
-          # prove compatibility against the oldest supported Kandev release.
-          ref: v0.88.0
+          ref: ${{ steps.sdk.outputs.ref }}
           path: kandev
           sparse-checkout: |
             apps/backend
@@ -50,20 +55,20 @@ jobs:
           cache: npm
           cache-dependency-path: plugin/package-lock.json
 
-      - name: Install UI dependencies
+      - name: Install locked UI dependencies
         working-directory: plugin
         run: npm ci
 
       - name: Check module files are tidy
         working-directory: plugin
         run: |
+          set -euo pipefail
           go mod tidy
           git diff --exit-code -- go.mod go.sum
 
       - name: Check formatting
         working-directory: plugin
-        run: |
-          test -z "$(gofmt -l .)" || { echo "gofmt needed:"; gofmt -l .; exit 1; }
+        run: make check-format
 
       - name: Vet
         working-directory: plugin
@@ -87,26 +92,46 @@ jobs:
         run: >-
           echo "::notice title=External-host smoke test unavailable::Configure
           KANDEV_PLUGIN_E2E_URL to add an external disposable-host smoke test.
-          The required exact-head packaged-host contract runs in the separate job."
+          The required packaged-host contract runs in the separate job."
 
   packaged-host-contract:
-    name: Exact host packaged-plugin contract
+    name: Packaged plugin on the minimum supported host
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Check out plugin
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           path: plugin
 
-      - name: Check out exact Kandev host contract
+      - name: Read SDK pin and runtime host floor
+        id: versions
+        working-directory: plugin
+        run: |
+          set -euo pipefail
+          sdk_ref="$(cat .kandev-sdk-ref)"
+          min_version="$(sed -nE 's/^min_kandev_version: "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' manifest.yaml)"
+          [[ "$sdk_ref" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$min_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "sdk_ref=$sdk_ref" >> "$GITHUB_OUTPUT"
+          echo "min_version=$min_version" >> "$GITHUB_OUTPUT"
+
+      - name: Check out pinned Kandev SDK source
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           repository: kdlbs/kandev
-          # Exercise the real package against the minimum supported host release;
-          # this job intentionally has no latest/main fallback.
-          ref: v0.88.0
+          ref: ${{ steps.versions.outputs.sdk_ref }}
           path: kandev
+          sparse-checkout: |
+            apps/backend
+            apps/packages/plugin-sdk
+
+      - name: Check out minimum supported Kandev host
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          repository: kdlbs/kandev
+          ref: v${{ steps.versions.outputs.min_version }}
+          path: kandev-min
 
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
@@ -124,40 +149,41 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: kandev/apps/pnpm-lock.yaml
+          cache-dependency-path: kandev-min/apps/pnpm-lock.yaml
 
-      - name: Install exact consumer and host dependencies
+      - name: Install locked plugin and host dependencies
         run: |
-          cd plugin && npm ci
-          cd ../kandev/apps && pnpm install --frozen-lockfile
+          set -euo pipefail
+          (cd plugin && npm ci)
+          (cd kandev-min/apps && pnpm install --frozen-lockfile)
 
-      - name: Build real plugin package
+      - name: Build and verify the real plugin package
         working-directory: plugin
         run: make package-host verify-package-host
 
-      - name: Resolve plugin package path
+      - name: Resolve package path
         id: package
         working-directory: plugin
         run: |
+          set -euo pipefail
           version="$(sed -nE 's/^version: "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' manifest.yaml)"
           package="$PWD/kandev-plugin-bitbucket-$version.tar.gz"
           test -n "$version" && test -f "$package"
           echo "path=$package" >> "$GITHUB_OUTPUT"
 
-      - name: Build disposable Kandev test host
-        working-directory: kandev
+      - name: Build disposable minimum-version Kandev host
+        working-directory: kandev-min
         run: |
+          set -euo pipefail
           make build-backend build-web-e2e
           make -C apps/backend e2e-plugin-package
 
       - name: Install Playwright Chromium
-        working-directory: kandev/apps/web
+        working-directory: kandev-min/apps/web
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Exercise exact plugin package on desktop and mobile surfaces
-        working-directory: kandev/apps/web
+      - name: Exercise desktop and mobile plugin surfaces
+        working-directory: kandev-min/apps/web
         env:
           KANDEV_BITBUCKET_PLUGIN_PACKAGE: ${{ steps.package.outputs.path }}
-        run: >-
-          pnpm e2e:raw --project=chromium
-          tests/plugins/bitbucket-packaged-plugin.spec.ts
+        run: pnpm e2e:raw --project=chromium tests/plugins/bitbucket-packaged-plugin.spec.ts
