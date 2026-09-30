@@ -379,13 +379,22 @@ jobs:
           KANDEV_PLUGIN_E2E_PACKAGE: ${{ github.workspace }}/plugin/${{ steps.verify.outputs.package }}
         run: npm run e2e:contract
 
-      - name: Extract generated checksums
+      - name: Report unavailable external-host smoke test
+        if: ${{ env.KANDEV_PLUGIN_E2E_URL == '' }}
+        run: >-
+          echo "::notice title=External-host smoke test unavailable::Configure
+          KANDEV_PLUGIN_E2E_URL to add an external disposable-host smoke test.
+          The required packaged-host contract passed against the minimum
+          supported Kandev release."
+
+      - name: Generate release checksums
         working-directory: plugin
         env:
           PACKAGE_FILE: ${{ steps.verify.outputs.package }}
         run: |
           set -euo pipefail
           tar -xOzf "$PACKAGE_FILE" checksums.txt > checksums.txt
+          sha256sum "$PACKAGE_FILE" >> checksums.txt
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2

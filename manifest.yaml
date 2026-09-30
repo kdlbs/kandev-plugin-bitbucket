@@ -1,6 +1,6 @@
 id: "kandev-plugin-bitbucket"
 api_version: 1
-version: "0.3.0"
+version: "0.3.1"
 min_kandev_version: "0.88.0"
 display_name: "Bitbucket"
 description: "Connect Bitbucket Cloud or Data Center to native Kandev repository, pull-request, task, review, and watch workflows."

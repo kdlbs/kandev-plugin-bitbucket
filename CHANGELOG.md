@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1] - 2026-09-30
+
+### Changed
+
+- Fix marketplace release archive checksum (#15) (e60b07a)
+
+
 ## [0.3.0] - 2026-08-26
 
 ### Changed
