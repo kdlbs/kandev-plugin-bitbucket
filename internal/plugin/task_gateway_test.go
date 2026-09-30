@@ -165,6 +165,10 @@ func (*taskReader) Update(context.Context, pluginsdk.UpdateTaskInput) (*pluginsd
 	return nil, nil
 }
 
+func (*taskReader) Move(context.Context, pluginsdk.MoveTaskInput) (*pluginsdk.MoveTaskOutcome, error) {
+	return nil, errors.New("taskReader.Move is not implemented")
+}
+
 type repositoryReader struct{ repositories []pluginsdk.Repository }
 
 func (r *repositoryReader) List(context.Context, string, pluginsdk.Page) ([]pluginsdk.Repository, *pluginsdk.PageInfo, error) {

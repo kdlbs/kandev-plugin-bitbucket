@@ -21,13 +21,20 @@ jobs:
         with:
           path: plugin
 
-      - name: Check out kandev SDK
+      - name: Read pinned Kandev source revision
+        id: sdk
+        working-directory: plugin
+        run: |
+          set -euo pipefail
+          sdk_ref="$(cat .kandev-sdk-ref)"
+          [[ "$sdk_ref" =~ ^[0-9a-f]{40}$ ]]
+          echo "ref=$sdk_ref" >> "$GITHUB_OUTPUT"
+
+      - name: Check out Kandev SDK source
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           repository: kdlbs/kandev
-          # Keep this aligned with manifest.min_kandev_version so PR builds
-          # prove compatibility against the oldest supported Kandev release.
-          ref: v0.88.0
+          ref: ${{ steps.sdk.outputs.ref }}
           path: kandev
           sparse-checkout: |
             apps/backend
@@ -46,7 +53,7 @@ jobs:
           cache: npm
           cache-dependency-path: plugin/package-lock.json
 
-      - name: Install UI dependencies
+      - name: Install locked UI dependencies
         working-directory: plugin
         run: npm ci
 
@@ -54,6 +61,6 @@ jobs:
         working-directory: plugin
         run: make build
 
-      - name: Package all supported platforms
+      - name: Package and verify all supported platforms
         working-directory: plugin
         run: make package verify-package
