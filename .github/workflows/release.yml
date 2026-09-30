@@ -250,11 +250,12 @@ jobs:
           The required packaged-host contract passed against the minimum
           supported Kandev release."
 
-      - name: Extract checksums
+      - name: Generate release checksums
         working-directory: plugin
         run: |
           pkg="$(ls kandev-plugin-bitbucket-*.tar.gz)"
           tar -xzf "$pkg" checksums.txt
+          sha256sum "$pkg" >> checksums.txt
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
