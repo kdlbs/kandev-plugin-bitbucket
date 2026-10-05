@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0] - 2026-10-05
+
+### Changed
+
+- chore: align Bitbucket plugin CI and release baseline (#14) (dac7b41)
+
+
 ## [0.3.1] - 2026-09-30
 
 ### Changed
