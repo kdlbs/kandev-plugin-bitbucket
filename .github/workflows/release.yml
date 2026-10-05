@@ -1,8 +1,7 @@
 name: release
 
-# Run manually from GitHub Actions on main to calculate a version, commit the
-# release metadata and changelog, tag that commit, then build and publish it.
-# Existing v* tag pushes skip preparation and only build and publish.
+# Manual releases verify the candidate before committing release metadata or
+# pushing its tag. Pushed tags run the same checks before GitHub publishes.
 on:
   push:
     tags:
@@ -24,14 +23,22 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: kandev-plugin-bitbucket-release
+  cancel-in-progress: false
+
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   prepare:
-    name: Prepare release commit
+    name: Validate and prepare release commit
     if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
+    env:
+      KANDEV_PLUGIN_E2E_URL: ${{ secrets.KANDEV_PLUGIN_E2E_URL }}
+    permissions:
+      contents: write
     outputs:
       tag: ${{ steps.version.outputs.tag }}
     steps:
@@ -48,21 +55,78 @@ jobs:
       - name: Check out main and release tags
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
+          path: plugin
+          ref: main
           fetch-depth: 0
+
+      - name: Read pinned Kandev source revision and runtime host floor
+        id: versions
+        working-directory: plugin
+        run: |
+          set -euo pipefail
+          sdk_ref="$(cat .kandev-sdk-ref)"
+          min_version="$(sed -nE 's/^min_kandev_version: "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' manifest.yaml)"
+          [[ "$sdk_ref" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$min_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "sdk_ref=$sdk_ref" >> "$GITHUB_OUTPUT"
+          echo "min_version=$min_version" >> "$GITHUB_OUTPUT"
+
+      - name: Check out pinned Kandev SDK source
+        if: ${{ !inputs.dry_run }}
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          repository: kdlbs/kandev
+          ref: ${{ steps.versions.outputs.sdk_ref }}
+          path: kandev
+          sparse-checkout: |
+            apps/backend
+            apps/packages/plugin-sdk
+
+      - name: Check out minimum supported Kandev host
+        if: ${{ !inputs.dry_run }}
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          repository: kdlbs/kandev
+          ref: v${{ steps.versions.outputs.min_version }}
+          path: kandev-min
+
+      - name: Set up Go
+        if: ${{ !inputs.dry_run }}
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: plugin/go.mod
+          cache-dependency-path: plugin/go.sum
+
+      - name: Set up pnpm
+        if: ${{ !inputs.dry_run }}
+        uses: pnpm/action-setup@a8198c4bff370c8506180b035930dea56dbd5288 # v5
+        with:
+          version: 9.15.9
+
+      - name: Set up Node
+        if: ${{ !inputs.dry_run }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: plugin/package-lock.json
+
+      - name: Install locked plugin and host dependencies
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          (cd plugin && npm ci)
+          (cd kandev-min/apps && pnpm install --frozen-lockfile)
 
       - name: Compute next release version
         id: version
+        working-directory: plugin
         env:
           BUMP: ${{ inputs.bump }}
         run: |
           set -euo pipefail
           CURRENT_VERSION="$(sed -nE 's/^version: "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' manifest.yaml)"
-          MAKE_VERSION="$(sed -nE 's/^VERSION := ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' Makefile)"
-          test -n "$CURRENT_VERSION" || { echo "manifest.yaml has no SemVer version." >&2; exit 1; }
-          test "$CURRENT_VERSION" = "$MAKE_VERSION" || {
-            echo "manifest.yaml ($CURRENT_VERSION) and Makefile ($MAKE_VERSION) disagree." >&2
-            exit 1
-          }
+          sh scripts/verify-release-version.sh "v$CURRENT_VERSION"
 
           LATEST_TAG="$(git tag --list 'v*' | awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/' | sort -V | tail -n 1)"
           BASELINE="$(CURRENT_VERSION="$CURRENT_VERSION" LATEST_TAG="$LATEST_TAG" python3 - <<'PY'
@@ -82,14 +146,12 @@ jobs:
           esac
           TAG="v$NEXT"
 
-          ! git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null || {
+          if git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null; then
             echo "Tag already exists locally: $TAG" >&2
             exit 1
-          }
-          ! git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null || {
-            echo "Tag already exists on origin: $TAG" >&2
-            exit 1
-          }
+          fi
+          REMOTE_TAG="$(git ls-remote --tags origin "refs/tags/$TAG")"
+          test -z "$REMOTE_TAG" || { echo "Tag already exists on origin: $TAG" >&2; exit 1; }
 
           echo "Current version: $CURRENT_VERSION"
           echo "Latest release tag: ${LATEST_TAG:-none}"
@@ -104,6 +166,7 @@ jobs:
 
       - name: Update release metadata and changelog
         if: ${{ !inputs.dry_run }}
+        working-directory: plugin
         env:
           VERSION: ${{ steps.version.outputs.version }}
           PREVIOUS_TAG: ${{ steps.version.outputs.previous_tag }}
@@ -111,9 +174,8 @@ jobs:
           set -euo pipefail
           sed -i -E "s/^version: \"[0-9]+\.[0-9]+\.[0-9]+\"$/version: \"$VERSION\"/" manifest.yaml
           sed -i -E "s/^VERSION := [0-9]+\.[0-9]+\.[0-9]+$/VERSION := $VERSION/" Makefile
-          sed -i -E "s/kandev-plugin-bitbucket-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz/kandev-plugin-bitbucket-$VERSION.tar.gz/" README.md
 
-          RANGE="${PREVIOUS_TAG:+$PREVIOUS_TAG..}HEAD"
+          if [ -n "$PREVIOUS_TAG" ]; then RANGE="$PREVIOUS_TAG..HEAD"; else RANGE=HEAD; fi
           CHANGES="$(git log --no-merges --format='- %s (%h)' "$RANGE")"
           test -n "$CHANGES" || CHANGES="- Initial release"
           {
@@ -128,8 +190,61 @@ jobs:
           } > CHANGELOG.md.next
           mv CHANGELOG.md.next CHANGELOG.md
 
-      - name: Commit and tag release metadata
+      - name: Validate release identity before building
         if: ${{ !inputs.dry_run }}
+        working-directory: plugin
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: sh scripts/verify-release-version.sh "$TAG"
+
+      - name: Run checks and validate the release package
+        if: ${{ !inputs.dry_run }}
+        id: candidate
+        working-directory: plugin
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+          make check-format
+          make vet
+          make test
+          make package verify-package
+          PACKAGE_FILE="$(make --no-print-directory -s package-file)"
+          sh scripts/verify-release-version.sh "$TAG" "$PACKAGE_FILE"
+          echo "package=$PACKAGE_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Build disposable minimum-version Kandev host
+        if: ${{ !inputs.dry_run }}
+        working-directory: kandev-min
+        run: |
+          set -euo pipefail
+          make build-backend build-web-e2e
+          make -C apps/backend e2e-plugin-package
+
+      - name: Install Playwright Chromium
+        if: ${{ !inputs.dry_run }}
+        working-directory: kandev-min/apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Exercise desktop and mobile plugin surfaces
+        if: ${{ !inputs.dry_run }}
+        working-directory: kandev-min/apps/web
+        env:
+          KANDEV_BITBUCKET_PLUGIN_PACKAGE: ${{ github.workspace }}/plugin/${{ steps.candidate.outputs.package }}
+        run: pnpm e2e:raw --project=chromium tests/plugins/bitbucket-packaged-plugin.spec.ts
+
+      - name: Exercise optional external Kandev host
+        if: ${{ !inputs.dry_run && env.KANDEV_PLUGIN_E2E_URL != '' }}
+        working-directory: plugin
+        env:
+          KANDEV_PLUGIN_E2E_PACKAGE: ${{ github.workspace }}/plugin/${{ steps.candidate.outputs.package }}
+        run: npm run e2e:contract
+
+      - name: Commit and tag validated release metadata
+        if: ${{ !inputs.dry_run }}
+        working-directory: plugin
         env:
           VERSION: ${{ steps.version.outputs.version }}
           TAG: ${{ steps.version.outputs.tag }}
@@ -137,14 +252,14 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add manifest.yaml Makefile README.md CHANGELOG.md
+          git add manifest.yaml Makefile CHANGELOG.md
           git commit -m "release: $VERSION"
           git push origin HEAD:main
           git tag -a "$TAG" -m "Release $VERSION"
           git push origin "$TAG"
 
   publish:
-    name: Build and publish release
+    name: Verify package and publish release
     needs: prepare
     if: >-
       ${{
@@ -153,37 +268,51 @@ jobs:
         (github.event_name == 'workflow_dispatch' && !inputs.dry_run && needs.prepare.result == 'success'))
       }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    permissions:
+      contents: write
     env:
       KANDEV_PLUGIN_E2E_URL: ${{ secrets.KANDEV_PLUGIN_E2E_URL }}
     steps:
-      - name: Checkout plugin
+      - name: Check out release commit
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           path: plugin
           ref: ${{ github.event_name == 'push' && github.ref || needs.prepare.outputs.tag }}
 
-      - name: Verify release version and minimum host
-        id: manifest
+      - name: Read pinned Kandev source revision and runtime host floor
+        id: versions
         working-directory: plugin
         env:
           RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || needs.prepare.outputs.tag }}
         run: |
-          version="$(sed -nE 's/^version: "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' manifest.yaml)"
-          min_kandev_version="$(sed -nE 's/^min_kandev_version: "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' manifest.yaml)"
-          test "$RELEASE_TAG" = "v$version"
-          test -n "$min_kandev_version" || { echo "min_kandev_version must name the released compatible host"; exit 1; }
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "min_kandev_version=$min_kandev_version" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          sdk_ref="$(cat .kandev-sdk-ref)"
+          min_version="$(sed -nE 's/^min_kandev_version: "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' manifest.yaml)"
+          [[ "$sdk_ref" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$min_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          sh scripts/verify-release-version.sh "$RELEASE_TAG"
+          echo "sdk_ref=$sdk_ref" >> "$GITHUB_OUTPUT"
+          echo "min_version=$min_version" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout minimum supported Kandev host
+      - name: Check out pinned Kandev SDK source
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           repository: kdlbs/kandev
-          ref: v${{ steps.manifest.outputs.min_kandev_version }}
+          ref: ${{ steps.versions.outputs.sdk_ref }}
           path: kandev
+          sparse-checkout: |
+            apps/backend
+            apps/packages/plugin-sdk
 
-      - name: Setup Go
+      - name: Check out minimum supported Kandev host
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          repository: kdlbs/kandev
+          ref: v${{ steps.versions.outputs.min_version }}
+          path: kandev-min
+
+      - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: plugin/go.mod
@@ -198,48 +327,56 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 24
-          cache: pnpm
-          cache-dependency-path: kandev/apps/pnpm-lock.yaml
+          cache: npm
+          cache-dependency-path: plugin/package-lock.json
 
-      - name: Install plugin and host dependencies
+      - name: Install locked plugin and host dependencies
         run: |
-          cd plugin && npm ci
-          cd ../kandev/apps && pnpm install --frozen-lockfile
+          set -euo pipefail
+          (cd plugin && npm ci)
+          (cd kandev-min/apps && pnpm install --frozen-lockfile)
 
-      - name: Verify
+      - name: Verify release identity, tests, and package
+        id: verify
         working-directory: plugin
+        env:
+          TAG: ${{ github.event_name == 'push' && github.ref_name || needs.prepare.outputs.tag }}
         run: |
-          test -z "$(gofmt -l .)" || { echo "gofmt needed:"; gofmt -l .; exit 1; }
+          set -euo pipefail
+          sh scripts/verify-release-version.sh "$TAG"
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+          make check-format
           make vet
           make test
+          make package verify-package
+          PACKAGE_FILE="$(make --no-print-directory -s package-file)"
+          sh scripts/verify-release-version.sh "$TAG" "$PACKAGE_FILE"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "package=$PACKAGE_FILE" >> "$GITHUB_OUTPUT"
 
-      - name: Package (all platforms)
-        working-directory: plugin
-        run: make package verify-package
-
-      - name: Build disposable Kandev test host
-        working-directory: kandev
+      - name: Build disposable minimum-version Kandev host
+        working-directory: kandev-min
         run: |
+          set -euo pipefail
           make build-backend build-web-e2e
           make -C apps/backend e2e-plugin-package
 
       - name: Install Playwright Chromium
-        working-directory: kandev/apps/web
+        working-directory: kandev-min/apps/web
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Exercise release package on desktop and mobile surfaces
-        working-directory: kandev/apps/web
+      - name: Exercise desktop and mobile plugin surfaces
+        working-directory: kandev-min/apps/web
         env:
-          KANDEV_BITBUCKET_PLUGIN_PACKAGE: ${{ github.workspace }}/plugin/kandev-plugin-bitbucket-${{ steps.manifest.outputs.version }}.tar.gz
-        run: >-
-          pnpm e2e:raw --project=chromium
-          tests/plugins/bitbucket-packaged-plugin.spec.ts
+          KANDEV_BITBUCKET_PLUGIN_PACKAGE: ${{ github.workspace }}/plugin/${{ steps.verify.outputs.package }}
+        run: pnpm e2e:raw --project=chromium tests/plugins/bitbucket-packaged-plugin.spec.ts
 
       - name: Exercise optional external Kandev host
         if: ${{ env.KANDEV_PLUGIN_E2E_URL != '' }}
         working-directory: plugin
         env:
-          KANDEV_PLUGIN_E2E_PACKAGE: ${{ github.workspace }}/plugin/kandev-plugin-bitbucket-${{ steps.manifest.outputs.version }}.tar.gz
+          KANDEV_PLUGIN_E2E_PACKAGE: ${{ github.workspace }}/plugin/${{ steps.verify.outputs.package }}
         run: npm run e2e:contract
 
       - name: Report unavailable external-host smoke test
@@ -252,16 +389,18 @@ jobs:
 
       - name: Generate release checksums
         working-directory: plugin
+        env:
+          PACKAGE_FILE: ${{ steps.verify.outputs.package }}
         run: |
-          pkg="$(ls kandev-plugin-bitbucket-*.tar.gz)"
-          tar -xzf "$pkg" checksums.txt
-          sha256sum "$pkg" >> checksums.txt
+          set -euo pipefail
+          tar -xOzf "$PACKAGE_FILE" checksums.txt > checksums.txt
+          sha256sum "$PACKAGE_FILE" >> checksums.txt
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
-          tag_name: ${{ github.event_name == 'push' && github.ref_name || needs.prepare.outputs.tag }}
+          tag_name: ${{ steps.verify.outputs.tag }}
           files: |
-            plugin/kandev-plugin-bitbucket-*.tar.gz
+            plugin/${{ steps.verify.outputs.package }}
             plugin/checksums.txt
           generate_release_notes: true

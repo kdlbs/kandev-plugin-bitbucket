@@ -36,34 +36,58 @@ installation and capabilities are API permission gates, not a sandbox.
 - Kandev 0.88.0 or newer. This is the first release line that contains the
   declared-action, provider-registration, reference-authorization,
   credential-broker, and live `api_write` contracts required by this plugin.
-- Go version from `go.mod` and Node 24 for the UI toolchain.
-- A sibling Kandev checkout while developing, because the Go and frontend SDKs
-  are resolved from that exact host source:
+- Go 1.26.0 and Node 24 for the UI toolchain. The package-lock file records
+  the npm dependencies.
+- A dedicated sibling Kandev checkout while developing. The Go module and
+  frontend SDK resolve through that checkout, pinned by `.kandev-sdk-ref` to
+  `570600439036e81f8e9e1c63f15c4abce8a6c846`:
 
   ```text
   parent-directory/
-  ├── kandev/                         # apps/backend Go module
-  └── kandev-plugin-bitbucket/        # this repository
+  ├── kandev/                            # pinned SDK source checkout
+  └── kandev-plugin-bitbucket/           # this repository
   ```
+
+The source pin is separate from the runtime floor in `manifest.yaml`. CI and
+release builds use the fixed source commit for SDK compilation. Packaged-host
+tests still run against the released minimum, Kandev 0.88.0.
 
 ## Build and verify
 
 ```sh
 npm ci
-make fmt
+go mod tidy
+git diff --exit-code -- go.mod go.sum
+make check-format
 make vet
 make test
 make build
-make package-host
-make verify-package-host
-make package
-make verify-package
+make package-host verify-package-host
+make package verify-package
 ```
 
 `make package-host` creates a package for the current host platform; `make
 package` cross-compiles every executable declared in `manifest.yaml`. Both
 produce `kandev-plugin-bitbucket-<version>.tar.gz` and generate its internal
-`checksums.txt`. Do not author that file by hand.
+`checksums.txt`. The verification targets check the package file inventory and
+every checksum. Do not author that file by hand. `make test` also runs negative
+checks for missing or unexpected package files and inconsistent release
+versions.
+
+Create the sibling SDK checkout beside this repository so the local Go module
+replacement resolves without changing another Kandev checkout:
+
+```sh
+git clone https://github.com/kdlbs/kandev.git kandev
+git -C kandev checkout "$(cat kandev-plugin-bitbucket/.kandev-sdk-ref)"
+```
+
+For the real packaged-host contract, use a separate checkout at the manifest's
+minimum release. Install the host dependencies with pnpm 9.15.9, then follow
+the same `build-backend`, `build-web-e2e`, and
+`tests/plugins/bitbucket-packaged-plugin.spec.ts` commands used by CI. The
+desktop/mobile contract test uses fake provider data and does not need
+Bitbucket credentials.
 
 `make e2e` is deliberately fail-fast: it requires `KANDEV_PLUGIN_E2E_URL` to
 name a fresh, disposable compatible Kandev host that accepts test package
@@ -146,14 +170,16 @@ and task Git limitations in [Integrations](https://kandev.dev/docs/integrations)
 
 ## Package and release policy
 
-Pull-request CI validates formatting, Go tests/vet, UI typecheck/build/tests,
-archive contents, and generated checksums. A required, credential-free job
-checks out the exact reviewed Kandev host, builds both heads, installs the real
-package, and exercises its desktop/mobile lifecycle and shared review/status
-surfaces. `KANDEV_PLUGIN_E2E_URL` adds an optional external-host smoke test; it
-is not the compatibility gate. The tag release workflow always runs the
-packaged-plugin contract before it uploads
-`<id>-<version>.tar.gz` on a matching `v<version>` tag.
+Pull-request CI pins the Go and frontend SDK source to `.kandev-sdk-ref` and
+validates formatting, Go tests/vet, UI typecheck/build/tests, exact archive
+contents, and generated checksums. A required, credential-free job checks out
+the released minimum host, installs the real package, and exercises its
+desktop/mobile lifecycle and shared review/status surfaces.
+`KANDEV_PLUGIN_E2E_URL` adds an optional external-host smoke test; it is not the
+compatibility gate. The release workflow checks that the tag, manifest,
+Makefile, and packaged manifest versions match. Manual releases run the tests
+and packaged-host contract before committing release metadata or pushing a tag;
+pushed tags run them before GitHub publishes the archive and checksums.
 
 The initial release intentionally follows Kandev's current unsigned marketplace
 contract. Its generated internal `checksums.txt` remains mandatory, but the
@@ -167,6 +193,21 @@ or newer. The release workflow validates against that exact minimum host tag
 before publishing. The plugin is listed in Kandev's official marketplace, which
 resolves the latest GitHub Release containing the required
 `kandev-plugin-bitbucket-<version>.tar.gz` asset.
+
+## Troubleshooting
+
+- If Go cannot find `../kandev/apps/backend` or npm cannot resolve
+  `../kandev/apps/packages/plugin-sdk`, place this repository beside the
+  dedicated Kandev checkout shown above and check out the commit in
+  `.kandev-sdk-ref`.
+- If `npm ci` fails, use Node 24 and keep `package-lock.json`; do not replace
+  the lockfile with a floating install.
+- If package verification fails, rebuild with `make package` or
+  `make package-host`. The verifier rejects missing files, extra files,
+  incomplete checksums, and damaged contents.
+- `make e2e` needs a fresh disposable Kandev host in
+  `KANDEV_PLUGIN_E2E_URL`. It does not use Bitbucket credentials. Live Bitbucket
+  acceptance is a separate opt-in workflow described above.
 
 ## License
 
