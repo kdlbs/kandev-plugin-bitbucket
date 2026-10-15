@@ -59,3 +59,43 @@ func assertMarketplaceSVG(t *testing.T, icon []byte) {
 		require.NotContains(t, lower, forbidden)
 	}
 }
+
+func TestManifestSourceTransportHasOnlyScopedCapabilities(t *testing.T) {
+	contents, err := os.ReadFile("../manifest.yaml")
+	require.NoError(t, err)
+	var m struct {
+		Actions []struct {
+			Key   string `yaml:"key"`
+			Scope string `yaml:"scope"`
+			Max   int    `yaml:"max_body_bytes"`
+		} `yaml:"actions"`
+		Tools []struct {
+			Name        string          `yaml:"name"`
+			Surfaces    []string        `yaml:"surfaces"`
+			Schema      map[string]any  `yaml:"input_schema"`
+			Annotations map[string]bool `yaml:"annotations"`
+		} `yaml:"agent_tools"`
+	}
+	require.NoError(t, yaml.Unmarshal(contents, &m))
+	require.Len(t, m.Tools, 2)
+	for _, tool := range m.Tools {
+		require.ElementsMatch(t, []string{"kanban-task", "office-task"}, tool.Surfaces)
+		require.Equal(t, false, tool.Schema["additionalProperties"])
+		require.NotContains(t, tool.Surfaces, "managed-conversation")
+		if tool.Name == "source_read" {
+			require.True(t, tool.Annotations["read_only_hint"])
+		} else {
+			require.Equal(t, "source_create", tool.Name)
+			require.False(t, tool.Annotations["read_only_hint"])
+		}
+	}
+	found := 0
+	for _, action := range m.Actions {
+		if action.Key == "source.read" || action.Key == "source.create" {
+			found++
+			require.Equal(t, "task", action.Scope)
+			require.Equal(t, 40000, action.Max)
+		}
+	}
+	require.Equal(t, 2, found)
+}

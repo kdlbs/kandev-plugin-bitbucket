@@ -35,6 +35,8 @@ webhooks:
     method: "GET"
 
 actions:
+  - { key: "source.read", scope: "task", max_body_bytes: 40000 }
+  - { key: "source.create", scope: "task", max_body_bytes: 40000 }
   - { key: "connection.get", scope: "workspace", max_body_bytes: 8192 }
   - { key: "connection.save", scope: "workspace", max_body_bytes: 65536 }
   - { key: "connection.disconnect", scope: "workspace", max_body_bytes: 8192 }
@@ -78,3 +80,37 @@ reference_sources:
 ui:
   bundle: "/ui/bundle.js"
   styles: ["/ui/plugin.css"]
+
+agent_tools:
+  - name: source_read
+    description: Read an exact task checkout's Bitbucket Cloud PR, pipeline, status, or bounded step log using the approved workspace connection.
+    surfaces: [kanban-task, office-task]
+    input_schema:
+      type: object
+      properties:
+        repository_id: { type: string, minLength: 1, maxLength: 128 }
+        operation: { type: string, enum: [pr_lookup, pr_get, pipelines, pipeline_get, pipeline_steps, pipeline_log, statuses] }
+        number: { type: integer, minimum: 1 }
+        pipeline_id: { type: string, maxLength: 128 }
+        step_id: { type: string, maxLength: 128 }
+      required: [repository_id, operation]
+      additionalProperties: false
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+  - name: source_create
+    description: Create or reuse an ordinary Bitbucket Cloud PR from the verified session checkout to its permitted task base branch.
+    surfaces: [kanban-task, office-task]
+    input_schema:
+      type: object
+      properties:
+        repository_id: { type: string, minLength: 1, maxLength: 128 }
+        title: { type: string, minLength: 1, maxLength: 512 }
+        description: { type: string, maxLength: 32768 }
+      required: [repository_id, title]
+      additionalProperties: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false

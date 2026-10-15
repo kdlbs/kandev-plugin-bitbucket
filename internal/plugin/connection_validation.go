@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"kandev-plugin-bitbucket/internal/datacenter"
 	"kandev-plugin-bitbucket/internal/domain"
 )
+
+var errRegisteredEmailRequired = errors.New("Bitbucket Cloud API-token email is required")
 
 func validateConnection(settings ConnectionSettings) error {
 	if err := validateConnectionAuthentication(settings); err != nil {
@@ -64,7 +67,7 @@ func validateConnectionAuthentication(settings ConnectionSettings) error {
 			return fmt.Errorf("Bitbucket Data Center authentication method must be user_pat, project_token, repository_token, or oauth")
 		}
 		if strings.TrimSpace(settings.AuthIdentity) == "" {
-			return fmt.Errorf("Bitbucket Cloud API-token email is required")
+			return errRegisteredEmailRequired
 		}
 		return nil
 	case "user_pat":

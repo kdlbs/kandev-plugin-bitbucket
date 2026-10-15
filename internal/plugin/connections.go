@@ -76,6 +76,7 @@ type ConnectionSettingsStore interface {
 // ConnectionResolver builds short-lived provider clients from host-owned
 // connection state and secrets. It never caches or persists plaintext tokens.
 type ConnectionResolver struct {
+	sourceMu   sync.Mutex
 	host       pluginsdk.Host
 	httpClient *http.Client
 

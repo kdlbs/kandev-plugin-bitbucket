@@ -35,7 +35,7 @@ jobs:
       - name: Check out Kandev SDK source
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
-          repository: kdlbs/kandev
+          repository: jumprope-jesse/kandev
           ref: ${{ steps.sdk.outputs.ref }}
           path: kandev
           sparse-checkout: |
@@ -119,7 +119,7 @@ jobs:
       - name: Check out pinned Kandev SDK source
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
-          repository: kdlbs/kandev
+          repository: jumprope-jesse/kandev
           ref: ${{ steps.versions.outputs.sdk_ref }}
           path: kandev
           sparse-checkout: |

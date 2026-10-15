@@ -212,3 +212,66 @@ resolves the latest GitHub Release containing the required
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Focused task source transport (source review)
+
+This source change requires a host SDK with
+`AgentToolContext.SourceRepositories`. It has not been installed or rolled out.
+Existing published hosts that omit that context fail closed. The current
+`min_kandev_version` remains the last released compatibility floor; a release
+must pin the first released host with the new context before advertising these
+tools. The exact development SDK commit is recorded in `.kandev-sdk-ref`.
+
+`source_read` exposes `pr_lookup`, `pr_get`, `pipelines`, `pipeline_get`,
+`pipeline_steps`, `pipeline_log`, and `statuses`. `source_create` accepts a title
+and optional description and creates/reuses an ordinary PR. Both select a
+host repository ID from the verified session checkout context. The session's
+branch and task repository's base branch determine source/target; caller branch,
+URL, credential and settings fields are rejected. Actions `source.read` and
+`source.create` use the same implementation behind authenticated task scope.
+
+Example task MCP arguments for `source_read`:
+
+```json
+{"repository_id":"repository-id","operation":"pr_lookup"}
+```
+
+Pipeline/log reads use only the current branch head and require pipeline/step
+identity verification. Lists contain at most 20 results and indicate truncation;
+logs return the first 64 KiB. PR dedupe refuses creation if a 20-item lookup is
+incomplete or ambiguous. Local operations are serialized without waiting; provider
+writes are never retried. Independent external PR writers can still race.
+
+Cloud uses fixed REST v2 routes with no redirects. The existing workspace
+connection binding and credential generation are checked before credential use
+and before returning the result. The repository identity and permitted base
+branch must still match the captured operation scope at both boundaries. API-token operations read only that generation's token vault key; no legacy
+token, host-account, Root-account or Git-helper credential fallback occurs.
+The source transport reads connection metadata without creating legacy binding
+epochs or migrating credential records.
+API tokens use the registered Atlassian email in `auth_identity`, separately
+from the Git pseudo-username. OAuth uses the existing refresh mechanism.
+Provider data and logs redact the active token and encoded authentication;
+provider error bodies and transport error strings are never returned.
+
+Missing connection/generation fails closed. Missing email reports
+`bitbucket_registered_email_required`; API 401 reports
+`bitbucket_api_identity_unauthorized`, separately from REST resource/routing
+errors (`bitbucket_rest_resource_unavailable`). This preserves the distinction
+between JMP-10402's API identity failure and JMP-10405's routing failure.
+No live connection-to-external-secret mapping was inspected or changed. An
+external worktree secret UUID is not an approved plugin mapping. If the approved
+connection lacks identity metadata, the required non-secret input is the token
+owner's registered Atlassian email. Do not request a replacement token or secret
+bytes. Existing API permissions must authorize the requested read/create;
+403 never triggers fallback or scope expansion.
+
+Data Center, historical pipeline heads, cross-repository/fork PR targets,
+merge, pipeline retrigger/deploy, administration, and arbitrary HTTP are outside
+these additional tools. Existing Git and other plugin workflows remain separate.
+
+The review SDK is `jumprope-jesse/kandev` at
+`fa5a70f8fd0e8d3b71725dfdb8d015687e1b6133`. Source checkouts in CI/build/release
+workflows use that repository because the commit is not present in
+`kdlbs/kandev`; minimum-released-host compatibility checkouts remain upstream.
+No workflow was manually dispatched and no artifact was installed or released.

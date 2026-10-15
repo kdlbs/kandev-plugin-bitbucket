@@ -70,6 +70,9 @@ func (r *Runtime) HandleAction(ctx context.Context, request *pluginsdk.PluginAct
 	}
 	response, err := workflows.HandleAction(ctx, request)
 	if err != nil {
+		if request != nil && (request.ActionKey == "source.read" || request.ActionKey == "source.create") {
+			return sourceActionFailure(err)
+		}
 		return actionFailureResponse(err)
 	}
 	return response, nil
