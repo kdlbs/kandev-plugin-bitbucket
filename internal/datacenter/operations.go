@@ -240,9 +240,9 @@ func (c *Client) ResolveGitCredential(ctx context.Context) (domain.GitCredential
 	return domain.GitCredential{Username: username, Secret: token, ExpiresAt: expiresAt}, nil
 }
 
-// ListBranches lists matching Data Center branches using start/limit pagination.
+// ListBranches lists all Data Center branches using start/limit pagination.
 func (c *Client) ListBranches(ctx context.Context, repository domain.Repository) ([]domain.Branch, error) {
-	return c.listBranches(ctx, repository, "", maxPageLength)
+	return c.listBranches(ctx, repository, "", maxBranchEntries)
 }
 func (c *Client) listBranches(ctx context.Context, repository domain.Repository, search string, limit int) ([]domain.Branch, error) {
 	if err := validateRepository(repository); err != nil {
@@ -253,7 +253,11 @@ func (c *Client) listBranches(ctx context.Context, repository domain.Repository,
 	}
 	endpoint := c.repositoryEndpoint(repository, "branches")
 	var branches []domain.Branch
-	for start := 0; len(branches) < limit; {
+	completed := false
+	for start, pages := 0, 0; len(branches) < limit; {
+		if pages >= maxBranchPages {
+			return nil, fmt.Errorf("Data Center branch pagination limit exceeded")
+		}
 		query := endpoint.Query()
 		query.Set("start", fmt.Sprint(start))
 		query.Set("limit", fmt.Sprint(min(limit, maxPageLength)))
@@ -275,12 +279,17 @@ func (c *Client) listBranches(ctx context.Context, repository domain.Repository,
 			}
 		}
 		if page.IsLastPage {
+			completed = true
 			break
 		}
 		if page.NextPageStart <= start {
 			return nil, fmt.Errorf("Data Center branch pagination did not advance")
 		}
 		start = page.NextPageStart
+		pages++
+	}
+	if !completed {
+		return nil, fmt.Errorf("Data Center branch limit exceeded")
 	}
 	return branches, nil
 }
