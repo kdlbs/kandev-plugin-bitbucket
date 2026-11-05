@@ -17,7 +17,7 @@ import (
 	"kandev-plugin-bitbucket/internal/datacenter"
 	"kandev-plugin-bitbucket/internal/domain"
 
-	"github.com/kandev/kandev/pkg/pluginsdk"
+	"github.com/kdlbs/kandev/pluginsdk"
 )
 
 const connectionStateKey = "bitbucket.connection.v1"

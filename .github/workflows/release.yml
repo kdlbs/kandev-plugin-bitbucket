@@ -59,28 +59,28 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Read pinned Kandev source revision and runtime host floor
+      - name: Read pinned packaging-tool source revision and runtime host floor
         id: versions
         working-directory: plugin
         run: |
           set -euo pipefail
-          sdk_ref="$(cat .kandev-sdk-ref)"
+          tooling_ref="$(cat .kandev-tooling-ref)"
           min_version="$(sed -nE 's/^min_kandev_version: "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' manifest.yaml)"
-          [[ "$sdk_ref" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$tooling_ref" =~ ^[0-9a-f]{40}$ ]]
           [[ "$min_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          echo "sdk_ref=$sdk_ref" >> "$GITHUB_OUTPUT"
+          echo "tooling_ref=$tooling_ref" >> "$GITHUB_OUTPUT"
           echo "min_version=$min_version" >> "$GITHUB_OUTPUT"
 
-      - name: Check out pinned Kandev SDK source
+      - name: Check out pinned Kandev packaging tools
         if: ${{ !inputs.dry_run }}
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           repository: kdlbs/kandev
-          ref: ${{ steps.versions.outputs.sdk_ref }}
-          path: kandev
+          ref: ${{ steps.versions.outputs.tooling_ref }}
+          path: kandev-tooling
           sparse-checkout: |
             apps/backend
-            apps/packages/plugin-sdk
+            pluginsdk
 
       - name: Check out minimum supported Kandev host
         if: ${{ !inputs.dry_run }}
@@ -117,6 +117,11 @@ jobs:
           set -euo pipefail
           (cd plugin && npm ci)
           (cd kandev-min/apps && pnpm install --frozen-lockfile)
+
+      - name: Check installed SDK compatibility
+        if: ${{ !inputs.dry_run }}
+        working-directory: plugin
+        run: make sdk-check
 
       - name: Compute next release version
         id: version
@@ -221,7 +226,7 @@ jobs:
         run: |
           set -euo pipefail
           make build-backend build-web-e2e
-          make -C apps/backend e2e-plugin-package
+          make -C apps/backend e2e-plugin-package build-e2e-delivery-fixture build-e2e-send-now-fixture
 
       - name: Install Playwright Chromium
         if: ${{ !inputs.dry_run }}
@@ -280,30 +285,30 @@ jobs:
           path: plugin
           ref: ${{ github.event_name == 'push' && github.ref || needs.prepare.outputs.tag }}
 
-      - name: Read pinned Kandev source revision and runtime host floor
+      - name: Read pinned packaging-tool source revision and runtime host floor
         id: versions
         working-directory: plugin
         env:
           RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || needs.prepare.outputs.tag }}
         run: |
           set -euo pipefail
-          sdk_ref="$(cat .kandev-sdk-ref)"
+          tooling_ref="$(cat .kandev-tooling-ref)"
           min_version="$(sed -nE 's/^min_kandev_version: "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' manifest.yaml)"
-          [[ "$sdk_ref" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$tooling_ref" =~ ^[0-9a-f]{40}$ ]]
           [[ "$min_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           sh scripts/verify-release-version.sh "$RELEASE_TAG"
-          echo "sdk_ref=$sdk_ref" >> "$GITHUB_OUTPUT"
+          echo "tooling_ref=$tooling_ref" >> "$GITHUB_OUTPUT"
           echo "min_version=$min_version" >> "$GITHUB_OUTPUT"
 
-      - name: Check out pinned Kandev SDK source
+      - name: Check out pinned Kandev packaging tools
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           repository: kdlbs/kandev
-          ref: ${{ steps.versions.outputs.sdk_ref }}
-          path: kandev
+          ref: ${{ steps.versions.outputs.tooling_ref }}
+          path: kandev-tooling
           sparse-checkout: |
             apps/backend
-            apps/packages/plugin-sdk
+            pluginsdk
 
       - name: Check out minimum supported Kandev host
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
@@ -336,6 +341,10 @@ jobs:
           (cd plugin && npm ci)
           (cd kandev-min/apps && pnpm install --frozen-lockfile)
 
+      - name: Check installed SDK compatibility
+        working-directory: plugin
+        run: make sdk-check
+
       - name: Verify release identity, tests, and package
         id: verify
         working-directory: plugin
@@ -360,7 +369,7 @@ jobs:
         run: |
           set -euo pipefail
           make build-backend build-web-e2e
-          make -C apps/backend e2e-plugin-package
+          make -C apps/backend e2e-plugin-package build-e2e-delivery-fixture build-e2e-send-now-fixture
 
       - name: Install Playwright Chromium
         working-directory: kandev-min/apps/web

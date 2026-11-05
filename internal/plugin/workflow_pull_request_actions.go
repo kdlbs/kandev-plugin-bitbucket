@@ -6,7 +6,7 @@ import (
 
 	"kandev-plugin-bitbucket/internal/domain"
 
-	"github.com/kandev/kandev/pkg/pluginsdk"
+	"github.com/kdlbs/kandev/pluginsdk"
 )
 
 func (w *Workflows) handlePullRequestAction(ctx context.Context, request *pluginsdk.PluginActionRequest) (*pluginsdk.PluginActionResponse, error) {

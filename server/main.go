@@ -5,7 +5,7 @@ package main
 import (
 	"kandev-plugin-bitbucket/internal/plugin"
 
-	"github.com/kandev/kandev/pkg/pluginsdk"
+	"github.com/kdlbs/kandev/pluginsdk"
 )
 
 func main() {

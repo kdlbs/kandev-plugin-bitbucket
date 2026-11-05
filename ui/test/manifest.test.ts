@@ -16,26 +16,31 @@ describe("Bitbucket manifest", () => {
     expect(manifest).not.toContain('key: "pullrequests.update"');
     expect(manifest).toContain('repository_providers: ["bitbucket"]');
     expect(manifest).toContain('source: "bitbucket"');
-    expect(manifest).toContain('min_kandev_version: "0.88.0"');
+    expect(manifest).toContain('min_kandev_version: "0.99.0"');
   });
 
-  it("uses the fixed Kandev SDK source pin in build and release workflows", async () => {
-    const sdkRef = await readFile(new URL("../../.kandev-sdk-ref", import.meta.url), "utf8");
+  it("uses public SDKs and a separate packaging-only source pin", async () => {
+    const toolingRef = await readFile(new URL("../../.kandev-tooling-ref", import.meta.url), "utf8");
     const workflows = await Promise.all(
       ["build.yml", "ci.yml", "release.yml"].map((name) =>
         readFile(new URL(`../../.github/workflows/${name}`, import.meta.url), "utf8"),
       ),
     );
 
-    expect(sdkRef.trim()).toBe("570600439036e81f8e9e1c63f15c4abce8a6c846");
+    expect(toolingRef.trim()).toBe("f0e2e774cfe2df8a0d15e4c21dea7b48580e38fb");
     for (const workflow of workflows) {
       expect(workflow).toContain("apps/backend");
-      expect(workflow).toContain("apps/packages/plugin-sdk");
-      expect(workflow).toContain('sdk_ref="$(cat .kandev-sdk-ref)"');
+      expect(workflow).toContain("            pluginsdk\n");
+      expect(workflow).not.toContain("apps/packages/plugin-sdk");
+      expect(workflow).not.toContain(".kandev-sdk-ref");
+      expect(workflow).toContain('tooling_ref="$(cat .kandev-tooling-ref)"');
+      expect(workflow).toContain("path: kandev-tooling\n");
+      expect(workflow).toContain("make sdk-check");
     }
-    expect(workflows[0]).toContain("ref: ${{ steps.sdk.outputs.ref }}");
-    expect(workflows[1]).toContain("ref: ${{ steps.versions.outputs.sdk_ref }}");
-    expect(workflows[2]).toContain("ref: ${{ steps.versions.outputs.sdk_ref }}");
+    const verification = workflows[1].split("  packaged-host-contract:")[0];
+    expect(verification.indexOf("name: Test")).toBeLessThan(
+      verification.indexOf("name: Check out pinned Kandev packaging tools"),
+    );
   });
 
   it("checks out the complete minimum host for release package validation", async () => {
@@ -51,7 +56,7 @@ describe("Bitbucket manifest", () => {
     expect(minimumHostCheckout).toContain("ref: v${{ steps.versions.outputs.min_version }}");
     expect(minimumHostCheckout).toContain("path: kandev-min");
     expect(minimumHostCheckout).not.toContain("sparse-checkout:");
-    expect(workflow).toContain("path: kandev\n");
+    expect(workflow).toContain("path: kandev-tooling\n");
   });
 
   it("runs packaged tests against the manifest minimum Kandev release", async () => {
@@ -63,7 +68,7 @@ describe("Bitbucket manifest", () => {
       ),
     );
 
-    expect(minimumVersion).toBe("0.88.0");
+    expect(minimumVersion).toBe("0.99.0");
     for (const workflow of [ci, release]) {
       expect(workflow).toContain("min_kandev_version:");
       expect(workflow).toContain("ref: v${{ steps.versions.outputs.min_version }}");

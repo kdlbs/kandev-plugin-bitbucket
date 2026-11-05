@@ -8,7 +8,7 @@ import (
 	"kandev-plugin-bitbucket/internal/domain"
 	"kandev-plugin-bitbucket/internal/watches"
 
-	"github.com/kandev/kandev/pkg/pluginsdk"
+	"github.com/kdlbs/kandev/pluginsdk"
 )
 
 func (w *Workflows) launchWorkspaceTask(ctx context.Context, workspaceID string, pullRequest domain.PullRequest, input launchTaskInput) (*pluginsdk.PluginActionResponse, error) {

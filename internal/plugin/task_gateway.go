@@ -7,7 +7,7 @@ import (
 
 	"kandev-plugin-bitbucket/internal/watches"
 
-	"github.com/kandev/kandev/pkg/pluginsdk"
+	"github.com/kdlbs/kandev/pluginsdk"
 )
 
 const sourceMetadataKey = "plugin:kandev-plugin-bitbucket"

@@ -8,7 +8,7 @@ import (
 	"kandev-plugin-bitbucket/internal/domain"
 	"kandev-plugin-bitbucket/internal/watches"
 
-	"github.com/kandev/kandev/pkg/pluginsdk"
+	"github.com/kdlbs/kandev/pluginsdk"
 )
 
 const referenceSource = "bitbucket"

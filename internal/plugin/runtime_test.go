@@ -10,7 +10,7 @@ import (
 	"kandev-plugin-bitbucket/internal/domain"
 	"kandev-plugin-bitbucket/internal/watches"
 
-	"github.com/kandev/kandev/pkg/pluginsdk"
+	"github.com/kdlbs/kandev/pluginsdk"
 	"github.com/stretchr/testify/require"
 )
 

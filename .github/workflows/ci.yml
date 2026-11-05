@@ -23,24 +23,14 @@ jobs:
         with:
           path: plugin
 
-      - name: Read pinned Kandev source revision
-        id: sdk
+      - name: Read pinned packaging-tool source revision
+        id: tooling
         working-directory: plugin
         run: |
           set -euo pipefail
-          sdk_ref="$(cat .kandev-sdk-ref)"
-          [[ "$sdk_ref" =~ ^[0-9a-f]{40}$ ]]
-          echo "ref=$sdk_ref" >> "$GITHUB_OUTPUT"
-
-      - name: Check out Kandev SDK source
-        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
-        with:
-          repository: kdlbs/kandev
-          ref: ${{ steps.sdk.outputs.ref }}
-          path: kandev
-          sparse-checkout: |
-            apps/backend
-            apps/packages/plugin-sdk
+          tooling_ref="$(cat .kandev-tooling-ref)"
+          [[ "$tooling_ref" =~ ^[0-9a-f]{40}$ ]]
+          echo "ref=$tooling_ref" >> "$GITHUB_OUTPUT"
 
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
@@ -58,6 +48,10 @@ jobs:
       - name: Install locked UI dependencies
         working-directory: plugin
         run: npm ci
+
+      - name: Check installed SDK compatibility
+        working-directory: plugin
+        run: make sdk-check
 
       - name: Check module files are tidy
         working-directory: plugin
@@ -77,6 +71,16 @@ jobs:
       - name: Test
         working-directory: plugin
         run: make test
+
+      - name: Check out pinned Kandev packaging tools
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          repository: kdlbs/kandev
+          ref: ${{ steps.tooling.outputs.ref }}
+          path: kandev-tooling
+          sparse-checkout: |
+            apps/backend
+            pluginsdk
 
       - name: Package current host artifact
         working-directory: plugin
@@ -104,27 +108,27 @@ jobs:
         with:
           path: plugin
 
-      - name: Read SDK pin and runtime host floor
+      - name: Read packaging-tool pin and runtime host floor
         id: versions
         working-directory: plugin
         run: |
           set -euo pipefail
-          sdk_ref="$(cat .kandev-sdk-ref)"
+          tooling_ref="$(cat .kandev-tooling-ref)"
           min_version="$(sed -nE 's/^min_kandev_version: "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' manifest.yaml)"
-          [[ "$sdk_ref" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$tooling_ref" =~ ^[0-9a-f]{40}$ ]]
           [[ "$min_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          echo "sdk_ref=$sdk_ref" >> "$GITHUB_OUTPUT"
+          echo "tooling_ref=$tooling_ref" >> "$GITHUB_OUTPUT"
           echo "min_version=$min_version" >> "$GITHUB_OUTPUT"
 
-      - name: Check out pinned Kandev SDK source
+      - name: Check out pinned Kandev packaging tools
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           repository: kdlbs/kandev
-          ref: ${{ steps.versions.outputs.sdk_ref }}
-          path: kandev
+          ref: ${{ steps.versions.outputs.tooling_ref }}
+          path: kandev-tooling
           sparse-checkout: |
             apps/backend
-            apps/packages/plugin-sdk
+            pluginsdk
 
       - name: Check out minimum supported Kandev host
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
@@ -157,6 +161,10 @@ jobs:
           (cd plugin && npm ci)
           (cd kandev-min/apps && pnpm install --frozen-lockfile)
 
+      - name: Check installed SDK compatibility
+        working-directory: plugin
+        run: make sdk-check
+
       - name: Build and verify the real plugin package
         working-directory: plugin
         run: make package-host verify-package-host
@@ -176,7 +184,7 @@ jobs:
         run: |
           set -euo pipefail
           make build-backend build-web-e2e
-          make -C apps/backend e2e-plugin-package
+          make -C apps/backend e2e-plugin-package build-e2e-delivery-fixture build-e2e-send-now-fixture
 
       - name: Install Playwright Chromium
         working-directory: kandev-min/apps/web

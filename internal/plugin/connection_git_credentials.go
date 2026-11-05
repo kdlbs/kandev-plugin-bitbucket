@@ -8,7 +8,7 @@ import (
 
 	"kandev-plugin-bitbucket/internal/domain"
 
-	"github.com/kandev/kandev/pkg/pluginsdk"
+	"github.com/kdlbs/kandev/pluginsdk"
 )
 
 // ValidateGitCredentialScope proves that a host-verified broker request still

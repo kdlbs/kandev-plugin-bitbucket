@@ -11,7 +11,7 @@ import (
 	"kandev-plugin-bitbucket/internal/domain"
 	"kandev-plugin-bitbucket/internal/watches"
 
-	"github.com/kandev/kandev/pkg/pluginsdk"
+	"github.com/kdlbs/kandev/pluginsdk"
 )
 
 func requireCapability(provider domain.Provider, capability domain.Capability) error {

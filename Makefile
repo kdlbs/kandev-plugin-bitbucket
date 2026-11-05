@@ -1,11 +1,11 @@
-.PHONY: build build-ui run test test-ui test-package-verifier test-release-version fmt check-format vet package package-host package-file verify-package verify-package-host e2e e2e-live clean
+.PHONY: sdk-check build build-ui run test test-ui test-package-verifier test-release-version fmt check-format vet package package-host package-file verify-package verify-package-host e2e e2e-live clean
 
 # Keep these values synchronized with manifest.yaml.
 BIN := bin/kandev-plugin-bitbucket
 VERSION := 0.4.0
 STAGE := .build/stage
 PKG_OUT := $(notdir $(BIN))-$(VERSION).tar.gz
-KANDEV_SDK := ../kandev/apps/backend
+KANDEV_TOOLING ?= ../kandev-tooling/apps/backend
 
 ## Build the plugin binary for the host platform (development use). kandev
 ## itself always installs from `make package`/`package-host` output, not this.
@@ -13,7 +13,10 @@ build: build-ui
 	mkdir -p bin
 	go build -o $(BIN) ./server/...
 
-build-ui:
+sdk-check:
+	go run github.com/kdlbs/kandev/pluginsdk/cmd/kandev-sdk-check@v0.1.0 --manifest manifest.yaml --frontend-sdk node_modules/@kdlbs/plugin-sdk
+
+build-ui: sdk-check
 	npm run build:ui
 
 ## Build + run. Mainly for -race / manual smoke checks: kandev normally spawns
@@ -46,8 +49,8 @@ vet:
 ## Cross-compile server/plugin-<goos>-<goarch>[.exe] for every platform in
 ## manifest.yaml's runtime.executables, stage manifest.yaml + assets/ + ui/
 ## alongside them, and pack the tree into $(PKG_OUT) with
-## Kandev's cmd/plugin-pack using the sibling SDK module. Running the tool in
-## that module keeps its tool-only dependencies owned by Kandev rather than
+## Kandev's cmd/plugin-pack using the pinned backend tooling checkout. Running
+## the tool in that module keeps its tool-only dependencies owned by Kandev rather than
 ## leaking them into this plugin's go.sum. Install the tarball via Settings >
 ## Plugins or curl -F package=@...
 package: build-ui
@@ -62,7 +65,7 @@ package: build-ui
 	GOOS=darwin  GOARCH=amd64 go build -o $(STAGE)/server/plugin-darwin-amd64      ./server
 	GOOS=darwin  GOARCH=arm64 go build -o $(STAGE)/server/plugin-darwin-arm64      ./server
 	GOOS=windows GOARCH=amd64 go build -o $(STAGE)/server/plugin-windows-amd64.exe ./server
-	go -C $(KANDEV_SDK) run ./cmd/plugin-pack -dir $(abspath $(STAGE)) -out $(abspath $(PKG_OUT))
+	go -C $(KANDEV_TOOLING) run ./cmd/plugin-pack -dir $(abspath $(STAGE)) -out $(abspath $(PKG_OUT))
 	rm -rf $(STAGE)
 	@echo "Wrote $(PKG_OUT)"
 
@@ -76,7 +79,7 @@ package-host: build-ui
 	mkdir -p $(STAGE)/ui
 	cp ui/bundle.js ui/plugin.css $(STAGE)/ui/
 	go build -o $(STAGE)/server/plugin-$$(go env GOOS)-$$(go env GOARCH)$$(go env GOEXE) ./server
-	go -C $(KANDEV_SDK) run ./cmd/plugin-pack -dir $(abspath $(STAGE)) -out $(abspath $(PKG_OUT)) -platform-only
+	go -C $(KANDEV_TOOLING) run ./cmd/plugin-pack -dir $(abspath $(STAGE)) -out $(abspath $(PKG_OUT)) -platform-only
 	rm -rf $(STAGE)
 	@echo "Wrote $(PKG_OUT)"
 

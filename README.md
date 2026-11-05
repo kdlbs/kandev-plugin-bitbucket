@@ -33,70 +33,83 @@ installation and capabilities are API permission gates, not a sandbox.
 
 ## Requirements
 
-- Kandev 0.88.0 or newer. This is the first release line that contains the
-  declared-action, provider-registration, reference-authorization,
-  credential-broker, and live `api_write` contracts required by this plugin.
-- Go 1.26.0 and Node 24 for the UI toolchain. The package-lock file records
-  the npm dependencies.
-- A dedicated sibling Kandev checkout while developing. The Go module and
-  frontend SDK resolve through that checkout, pinned by `.kandev-sdk-ref` to
-  `570600439036e81f8e9e1c63f15c4abce8a6c846`:
+- Kandev 0.99.0 or newer: the SDK-wide minimum host in the published
+  `sdk-release.json` records for both SDKs. The plugin retains manifest API v1.
+- Go 1.26.0 and Node 24 (lockfile regenerated with npm 11.17.0).
+- Public SDKs pinned to `github.com/kdlbs/kandev/pluginsdk v0.1.0` and
+  `@kdlbs/plugin-sdk` exactly `0.1.0`. These share an independent SDK version;
+  the plugin remains version 0.4.0.
 
-  ```text
-  parent-directory/
-  ├── kandev/                            # pinned SDK source checkout
-  └── kandev-plugin-bitbucket/           # this repository
-  ```
-
-The source pin is separate from the runtime floor in `manifest.yaml`. CI and
-release builds use the fixed source commit for SDK compilation. Packaged-host
-tests still run against the released minimum, Kandev 0.88.0.
+SDK compilation, typechecking, and tests work from a standalone checkout.
+Packaging additionally needs backend-owned `cmd/plugin-pack` from an explicit
+Kandev tooling checkout pinned by `.kandev-tooling-ref` to
+`f0e2e774cfe2df8a0d15e4c21dea7b48580e38fb`. This is a packaging input,
+separate from the public SDK dependencies and the runtime host floor.
 
 ## Build and verify
 
+From a fresh plugin checkout, without sibling sources:
+
 ```sh
-npm ci
+npm ci --ignore-scripts
 go mod tidy
 git diff --exit-code -- go.mod go.sum
+make sdk-check
 make check-format
 make vet
 make test
 make build
-make package-host verify-package-host
-make package verify-package
 ```
 
+`make sdk-check` runs the installed-dependency compatibility checker:
+
+```sh
+go run github.com/kdlbs/kandev/pluginsdk/cmd/kandev-sdk-check@v0.1.0 \
+  --manifest manifest.yaml --frontend-sdk node_modules/@kdlbs/plugin-sdk
+```
+
+Upgrade SDKs deliberately: install exact Go/npm versions, regenerate and commit
+both locks, inspect their published release records, set the manifest minimum
+to at least the highest SDK floor, rerun the checker and tests, then smoke-test
+the declared minimum host. See the [public authoring guide](https://github.com/kdlbs/kandev/blob/main/docs/public/plugins-authoring.md#install-and-migrate-sdk-dependencies).
+
+To package, prepare the tooling source outside the plugin repository:
+
+```sh
+git clone https://github.com/kdlbs/kandev.git ../kandev-tooling
+git -C ../kandev-tooling checkout "$(cat .kandev-tooling-ref)"
+make package-host verify-package-host
+make package verify-package
+# For another checkout location:
+make package-host verify-package-host KANDEV_TOOLING=/absolute/path/to/kandev/apps/backend
+```
+
+A sparse tooling checkout must include both `apps/backend` and root
+`pluginsdk/`, which the backend module replaces locally. It is never used to
+resolve this plugin's SDK imports. Compilation independence does not imply
+checkout-free packaging.
+
 `make package-host` creates a package for the current host platform; `make
-package` cross-compiles every executable declared in `manifest.yaml`. Both
+package` cross-compiles all five executables declared in `manifest.yaml`. Both
 produce `kandev-plugin-bitbucket-<version>.tar.gz` and generate its internal
 `checksums.txt`. The verification targets check the package file inventory and
 every checksum. Do not author that file by hand. `make test` also runs negative
 checks for missing or unexpected package files and inconsistent release
 versions.
 
-Create the sibling SDK checkout beside this repository so the local Go module
-replacement resolves without changing another Kandev checkout:
-
-```sh
-git clone https://github.com/kdlbs/kandev.git kandev
-git -C kandev checkout "$(cat kandev-plugin-bitbucket/.kandev-sdk-ref)"
-```
-
-For the real packaged-host contract, use a separate checkout at the manifest's
-minimum release. Install the host dependencies with pnpm 9.15.9, then follow
-the same `build-backend`, `build-web-e2e`, and
-`tests/plugins/bitbucket-packaged-plugin.spec.ts` commands used by CI. The
-desktop/mobile contract test uses fake provider data and does not need
+For the packaged-host contract, use a separate disposable checkout of Kandev
+`v0.99.0` (the manifest minimum). Install its dependencies with pnpm 9.15.9,
+then follow CI's `build-backend`, `build-web-e2e`, and
+`pnpm e2e:raw --project=chromium tests/plugins/bitbucket-packaged-plugin.spec.ts`
+commands. The desktop/mobile contract uses fake provider data and needs no
 Bitbucket credentials.
 
-`make e2e` is deliberately fail-fast: it requires `KANDEV_PLUGIN_E2E_URL` to
-name a fresh, disposable compatible Kandev host that accepts test package
-uploads. The runner installs and activates the freshly built host package,
-then checks the native desktop and mobile plugin surfaces. Pull-request CI runs
-this external-host contract when that repository secret is configured and
-emits an explicit notice otherwise; package, checksum, type, unit, and build
-gates always run. Tag releases remain fail-fast and cannot publish without the
-packaged-host contract.
+`make e2e` requires `KANDEV_PLUGIN_E2E_URL` to name a fresh disposable
+compatible host that accepts test package uploads. The runner installs and
+activates the freshly built host package, then checks native desktop and mobile
+surfaces. CI runs this additional external-host contract when its secret is
+configured and emits a notice otherwise. The minimum-host packaged contract
+remains required before release.
 
 ### Configured live acceptance
 
@@ -170,9 +183,9 @@ and task Git limitations in [Integrations](https://kandev.dev/docs/integrations)
 
 ## Package and release policy
 
-Pull-request CI pins the Go and frontend SDK source to `.kandev-sdk-ref` and
-validates formatting, Go tests/vet, UI typecheck/build/tests, exact archive
-contents, and generated checksums. A required, credential-free job checks out
+Pull-request CI installs the exact public Go/frontend SDKs and checks their
+compatibility before building. It validates formatting, Go tests/vet, UI
+typecheck/build/tests, exact archive contents, and generated checksums. A required, credential-free job checks out
 the released minimum host, installs the real package, and exercises its
 desktop/mobile lifecycle and shared review/status surfaces.
 `KANDEV_PLUGIN_E2E_URL` adds an optional external-host smoke test; it is not the
@@ -189,17 +202,18 @@ host-wide verifier, trust policy, and key lifecycle; it is not a Bitbucket-only
 release gate.
 
 Version v0.2.0 is the first public plugin release and requires Kandev v0.88.0
-or newer. The release workflow validates against that exact minimum host tag
-before publishing. The plugin is listed in Kandev's official marketplace, which
+or newer. Source builds now inherit the SDK-wide Kandev 0.99.0 minimum; the
+release workflow validates against the current manifest minimum before publishing. The plugin is listed in Kandev's official marketplace,
+which
 resolves the latest GitHub Release containing the required
 `kandev-plugin-bitbucket-<version>.tar.gz` asset.
 
 ## Troubleshooting
 
-- If Go cannot find `../kandev/apps/backend` or npm cannot resolve
-  `../kandev/apps/packages/plugin-sdk`, place this repository beside the
-  dedicated Kandev checkout shown above and check out the commit in
-  `.kandev-sdk-ref`.
+- If packaging cannot find `cmd/plugin-pack`, prepare the pinned tooling
+  checkout or pass `KANDEV_TOOLING` pointing to its `apps/backend` directory.
+- If `make sdk-check` fails, inspect the installed SDK release records and
+  manifest minimum/API version; remove SDK replacements or file/link aliases.
 - If `npm ci` fails, use Node 24 and keep `package-lock.json`; do not replace
   the lockfile with a floating install.
 - If package verification fails, rebuild with `make package` or

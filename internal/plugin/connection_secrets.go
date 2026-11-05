@@ -12,7 +12,7 @@ import (
 
 	"kandev-plugin-bitbucket/internal/auth"
 
-	"github.com/kandev/kandev/pkg/pluginsdk"
+	"github.com/kdlbs/kandev/pluginsdk"
 )
 
 const credentialCleanupTimeout = 5 * time.Second

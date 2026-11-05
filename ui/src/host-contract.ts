@@ -17,4 +17,4 @@ export type {
   ReviewTaskAssociation,
   TaskContext,
   TaskCreationContext,
-} from "@kandev/plugin-sdk";
+} from "@kdlbs/plugin-sdk";
