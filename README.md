@@ -99,7 +99,7 @@ versions.
 
 For the packaged-host contract, use a separate disposable checkout of Kandev
 `v0.99.0` (the manifest minimum). Install its dependencies with pnpm 9.15.9,
-then follow CI's `build-backend`, `build-web-e2e`, and
+then follow CI's `build-backend`, `build-web-e2e` (with `VERSION=0.99.0`), and
 `pnpm e2e:raw --project=chromium tests/plugins/bitbucket-packaged-plugin.spec.ts`
 commands. The desktop/mobile contract uses fake provider data and needs no
 Bitbucket credentials.

@@ -90,6 +90,23 @@ done
 write_checksums "$host_fixture"
 sh "$verify_script" "$host_fixture" host "$host_platform" >/dev/null
 
+# Current plugin-pack canonicalizes YAML and narrows a host-only manifest.
+copy_fixture canonical-full
+sed -E 's/"//g; s/^  /    /; s/^      /        /' "$test_dir/canonical-full/manifest.yaml" > "$test_dir/canonical-full/manifest.next"
+mv "$test_dir/canonical-full/manifest.next" "$test_dir/canonical-full/manifest.yaml"
+write_checksums "$test_dir/canonical-full"
+sh "$verify_script" "$test_dir/canonical-full" full >/dev/null
+
+cp -R "$host_fixture" "$test_dir/canonical-host"
+awk -v platform="$host_platform:" '
+    /server\/plugin-/ && $1 != platform { next }
+    { gsub(/"/, ""); match($0, /^ */); print sprintf("%*s", RLENGTH * 2, "") substr($0, RLENGTH + 1) }
+' "$test_dir/canonical-host/manifest.yaml" > "$test_dir/canonical-host/manifest.next"
+mv "$test_dir/canonical-host/manifest.next" "$test_dir/canonical-host/manifest.yaml"
+write_checksums "$test_dir/canonical-host"
+sh "$verify_script" "$test_dir/canonical-host" host "$host_platform" >/dev/null
+expect_failure 'a host-only archive presented as a full package' "$test_dir/canonical-host"
+
 for required in manifest.yaml assets/icon.svg assets/NOTICE.md ui/bundle.js ui/plugin.css \
 	server/plugin-linux-amd64 server/plugin-linux-arm64 \
 	server/plugin-darwin-amd64 server/plugin-darwin-arm64 \

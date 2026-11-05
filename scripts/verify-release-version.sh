@@ -30,6 +30,6 @@ if [ "$#" -eq 2 ]; then
 	expected_package=$(make --no-print-directory -s package-file)
 	[ -f "$package_file" ] || fail "package file not found: $package_file"
 	[ "$(basename "$package_file")" = "$expected_package" ] || fail "package filename $(basename "$package_file") differs from $expected_package"
-	package_manifest=$(tar -xOzf "$package_file" manifest.yaml | sed -nE 's/^version: "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p')
+	package_manifest=$(tar -xOzf "$package_file" manifest.yaml | sed -nE 's/^version: "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p; s/^version: ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p')
 	[ "$package_manifest" = "$tag_version" ] || fail "package manifest version ${package_manifest:-missing} differs from tag $tag"
 fi

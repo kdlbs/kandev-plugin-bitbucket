@@ -58,5 +58,16 @@ package_file=$(cd "$test_dir/matching-package" && make --no-print-directory -s p
 tar -czf "$test_dir/matching-package/$package_file" -C "$test_dir/matching-package/archive" manifest.yaml
 (cd "$test_dir/matching-package" && sh "$verify_script" "v$base_version" "$package_file")
 
+make_fixture canonical-package
+mkdir -p "$test_dir/canonical-package/archive"
+sed 's/"//g' "$test_dir/canonical-package/manifest.yaml" > "$test_dir/canonical-package/archive/manifest.yaml"
+package_file=$(cd "$test_dir/canonical-package" && make --no-print-directory -s package-file)
+tar -czf "$test_dir/canonical-package/$package_file" -C "$test_dir/canonical-package/archive" manifest.yaml
+(cd "$test_dir/canonical-package" && sh "$verify_script" "v$base_version" "$package_file")
+sed "s/^version: $base_version$/version: $wrong_version/" "$test_dir/canonical-package/archive/manifest.yaml" > "$test_dir/canonical-package/archive/manifest.next"
+mv "$test_dir/canonical-package/archive/manifest.next" "$test_dir/canonical-package/archive/manifest.yaml"
+tar -czf "$test_dir/canonical-package/$package_file" -C "$test_dir/canonical-package/archive" manifest.yaml
+expect_failure 'an unquoted archive version that differs from its tag' "$test_dir/canonical-package" "v$base_version" "$package_file"
+
 expect_failure 'a non-version release tag' "$test_dir/valid" "release-$base_version"
 printf 'release version negative tests passed\n'

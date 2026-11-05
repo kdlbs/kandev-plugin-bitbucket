@@ -183,7 +183,7 @@ jobs:
         working-directory: kandev-min
         run: |
           set -euo pipefail
-          make build-backend build-web-e2e
+          make build-backend build-web-e2e VERSION="${{ steps.versions.outputs.min_version }}"
           make -C apps/backend e2e-plugin-package build-e2e-delivery-fixture build-e2e-send-now-fixture
 
       - name: Install Playwright Chromium
