@@ -25,7 +25,7 @@ Created a separate clone with no `../kandev` or `../kandev-tooling`. Public
 resolution used empty dedicated caches and no Go workspace:
 
 ```sh
-git clone --no-local "$PLUGIN_WORKTREE" /tmp/bitbucket-sdk-migration/standalone/plugin
+git clone --no-local "$(git rev-parse --show-toplevel)" /tmp/bitbucket-sdk-migration/standalone/plugin
 cd /tmp/bitbucket-sdk-migration/standalone/plugin
 export GOWORK=off
 export GOPROXY=https://proxy.golang.org
@@ -132,13 +132,21 @@ The command ran in a sanitized Python child environment: removed every inherited
 `HOME=/tmp/bitbucket-sdk-migration/runtime/home`, `XDG_CONFIG_HOME=.../config`,
 `XDG_DATA_HOME=.../data`, `XDG_CACHE_HOME=.../cache`, and `TMPDIR=.../tmp`.
 The maintained fixture creates its own isolated database/data/home below that
-temporary root. Explicit inputs:
+temporary root. Before isolating `HOME`, select/install the browser cache from `apps/web`:
+
+```sh
+BROWSER_CACHE="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}"
+PLAYWRIGHT_BROWSERS_PATH="$BROWSER_CACHE" pnpm exec playwright install chromium
+```
+
+The recorded run used that invoking user's existing default cache. Preserve
+`BROWSER_CACHE` when constructing the sanitized child. Explicit inputs:
 
 ```text
 KANDEV_SERVER_HOST=127.0.0.1
 KANDEV_BITBUCKET_PLUGIN_PACKAGE=/tmp/bitbucket-sdk-migration/bitbucket-host.tar.gz
 E2E_PORT_OFFSET=23
-PLAYWRIGHT_BROWSERS_PATH=/home/zeval/.cache/ms-playwright
+PLAYWRIGHT_BROWSERS_PATH=$BROWSER_CACHE
 ```
 
 Loaded the installed Nix browser libraries via `LD_LIBRARY_PATH` (the existing
@@ -180,3 +188,20 @@ The first full cross-build failed because this executor's persisted Go config
 forces `CGO_ENABLED=1` even for ARM; the retry explicitly uses `CGO_ENABLED=0`.
 No shared Go configuration was changed.
 
+
+## Automated review follow-up
+
+Addressed Cubic's six findings: guard the required Test step and every tooling
+checkout's pinned ref; reject malformed executable entries even after blank or
+comment lines; quote packaging paths; make checkout/browser-cache examples
+portable. The malformed-entry regression failed against the old verifier before
+its fix. All verifier suites and `make sdk-check check-format vet test build`
+passed afterward (59 UI tests and all 9 Go packages).
+
+Both actual archive forms passed with whitespace in the tooling override:
+
+```sh
+ln -s /tmp/bitbucket-sdk-migration/kandev-min '/tmp/bitbucket-sdk-migration/tooling source'
+make verify-package-host KANDEV_TOOLING='/tmp/bitbucket-sdk-migration/tooling source/apps/backend'
+CGO_ENABLED=0 make verify-package KANDEV_TOOLING='/tmp/bitbucket-sdk-migration/tooling source/apps/backend'
+```

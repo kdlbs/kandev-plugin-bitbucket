@@ -37,7 +37,23 @@ describe("Bitbucket manifest", () => {
       expect(workflow).toContain("path: kandev-tooling\n");
       expect(workflow).toContain("make sdk-check");
     }
+    const expectedRefs = [
+      ["steps.tooling.outputs.ref"],
+      ["steps.tooling.outputs.ref", "steps.versions.outputs.tooling_ref"],
+      ["steps.versions.outputs.tooling_ref", "steps.versions.outputs.tooling_ref"],
+    ];
+    workflows.forEach((workflow, index) => {
+      const checkouts = workflow
+        .split("      - name: Check out pinned Kandev packaging tools\n")
+        .slice(1)
+        .map((section) => section.split("\n      - name:")[0]);
+      expect(checkouts).toHaveLength(expectedRefs[index].length);
+      checkouts.forEach((checkout, checkoutIndex) => {
+        expect(checkout).toContain(`ref: \${{ ${expectedRefs[index][checkoutIndex]} }}`);
+      });
+    });
     const verification = workflows[1].split("  packaged-host-contract:")[0];
+    expect(verification).toContain("name: Test");
     expect(verification.indexOf("name: Test")).toBeLessThan(
       verification.indexOf("name: Check out pinned Kandev packaging tools"),
     );

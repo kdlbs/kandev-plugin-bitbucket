@@ -24,6 +24,7 @@ grep -Fx 'api_version: 1' "$package_dir/manifest.yaml" >/dev/null || fail 'manif
 grep -Ex 'icon: ("assets/icon\.svg"|assets/icon\.svg)' "$package_dir/manifest.yaml" >/dev/null || fail 'manifest icon path does not match the package'
 
 manifest_executables=$(awk '
+	/^[[:space:]]*($|#)/ { next }
 	$0 == "runtime:" { in_runtime = 1; next }
 	in_runtime && /^[^[:space:]]/ { exit }
 	in_runtime && $1 == "executables:" {
@@ -35,7 +36,10 @@ manifest_executables=$(awk '
 	in_executables {
 		match($0, /^[[:space:]]*/)
 		if (RLENGTH <= executables_indent) exit
-		if (NF != 2 || $1 !~ /^[[:alnum:]_-]+:$/) next
+		if (NF != 2 || $1 !~ /^[[:alnum:]_-]+:$/) {
+			print "__invalid-executable-entry__"
+			next
+		}
 		platform = $1
 		sub(/:$/, "", platform)
 		path = $2

@@ -107,6 +107,24 @@ write_checksums "$test_dir/canonical-host"
 sh "$verify_script" "$test_dir/canonical-host" host "$host_platform" >/dev/null
 expect_failure 'a host-only archive presented as a full package' "$test_dir/canonical-host"
 
+# Malformed/unsupported declarations must not disappear during parsing.
+for separator in direct blank comment; do
+	copy_fixture "malformed-$separator"
+	fixture=$test_dir/malformed-$separator
+	cp "$test_dir/canonical-host/manifest.yaml" "$fixture/manifest.yaml"
+	# Host fixtures only need the current executable.
+	for executable in "$fixture"/server/*; do
+		[ "$executable" = "$fixture/$host_executable" ] || rm "$executable"
+	done
+	case "$separator" in
+		blank) printf '\n' >> "$fixture/manifest.yaml" ;;
+		comment) printf '# executable declarations continue below\n' >> "$fixture/manifest.yaml" ;;
+	esac
+	printf '        "freebsd-amd64": server/plugin-freebsd-amd64\n' >> "$fixture/manifest.yaml"
+	write_checksums "$fixture"
+	expect_failure "a malformed host declaration after $separator" "$fixture" host "$host_platform"
+done
+
 for required in manifest.yaml assets/icon.svg assets/NOTICE.md ui/bundle.js ui/plugin.css \
 	server/plugin-linux-amd64 server/plugin-linux-arm64 \
 	server/plugin-darwin-amd64 server/plugin-darwin-arm64 \

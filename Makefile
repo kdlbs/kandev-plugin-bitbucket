@@ -65,7 +65,7 @@ package: build-ui
 	GOOS=darwin  GOARCH=amd64 go build -o $(STAGE)/server/plugin-darwin-amd64      ./server
 	GOOS=darwin  GOARCH=arm64 go build -o $(STAGE)/server/plugin-darwin-arm64      ./server
 	GOOS=windows GOARCH=amd64 go build -o $(STAGE)/server/plugin-windows-amd64.exe ./server
-	go -C $(KANDEV_TOOLING) run ./cmd/plugin-pack -dir $(abspath $(STAGE)) -out $(abspath $(PKG_OUT))
+	go -C "$(KANDEV_TOOLING)" run ./cmd/plugin-pack -dir "$(abspath $(STAGE))" -out "$(abspath $(PKG_OUT))"
 	rm -rf $(STAGE)
 	@echo "Wrote $(PKG_OUT)"
 
@@ -79,7 +79,7 @@ package-host: build-ui
 	mkdir -p $(STAGE)/ui
 	cp ui/bundle.js ui/plugin.css $(STAGE)/ui/
 	go build -o $(STAGE)/server/plugin-$$(go env GOOS)-$$(go env GOARCH)$$(go env GOEXE) ./server
-	go -C $(KANDEV_TOOLING) run ./cmd/plugin-pack -dir $(abspath $(STAGE)) -out $(abspath $(PKG_OUT)) -platform-only
+	go -C "$(KANDEV_TOOLING)" run ./cmd/plugin-pack -dir "$(abspath $(STAGE))" -out "$(abspath $(PKG_OUT))" -platform-only
 	rm -rf $(STAGE)
 	@echo "Wrote $(PKG_OUT)"
 
