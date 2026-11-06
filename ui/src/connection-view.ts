@@ -356,6 +356,7 @@ export function ConnectionHealth({
           product === "cloud"
             ? [
                 h(ui.SelectItem, { value: "api_token" }, t("apiToken")),
+                h(ui.SelectItem, { value: "access_token" }, t("cloudAccessToken")),
                 h(ui.SelectItem, { value: "oauth" }, t("oauth")),
               ]
             : [

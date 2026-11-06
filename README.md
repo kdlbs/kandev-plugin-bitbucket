@@ -10,7 +10,7 @@ service or an integration built into the Kandev host.
 
 ## Capabilities
 
-- Bitbucket Cloud: API-token or OAuth 2.0 connections.
+- Bitbucket Cloud: API-token, repository/project/workspace access-token, or OAuth 2.0 connections.
 - Bitbucket Data Center: personal, project, repository, or OAuth credentials.
 - Native Kandev repository provider, task-menu actions, and review panel.
 - Native Create PR transport after Kandev pushes the task branch, with exact
@@ -125,9 +125,9 @@ environment—never commit them and never paste tokens into logs:
 ```text
 KANDEV_PLUGIN_E2E_URL                         disposable compatible Kandev host
 KANDEV_BITBUCKET_LIVE_PRODUCT                cloud | data_center
-KANDEV_BITBUCKET_LIVE_AUTH_METHOD            api_token | user_pat | project_token | repository_token
+KANDEV_BITBUCKET_LIVE_AUTH_METHOD            api_token | access_token | user_pat | project_token | repository_token
 KANDEV_BITBUCKET_LIVE_TOKEN                  secret API token/PAT/scoped token
-KANDEV_BITBUCKET_LIVE_AUTH_IDENTITY          Cloud account email; DC username for user_pat
+KANDEV_BITBUCKET_LIVE_AUTH_IDENTITY          Cloud email for api_token; DC username for user_pat
 KANDEV_BITBUCKET_LIVE_CLOUD_WORKSPACE        Cloud workspace slug/ID
 KANDEV_BITBUCKET_LIVE_BASE_URL               DC HTTPS base URL including context path
 KANDEV_BITBUCKET_LIVE_REPOSITORY_NAMESPACE   Cloud workspace or DC project key
@@ -158,12 +158,20 @@ Use **Settings > Plugins** in a compatible Kandev host to upload the generated
 tarball, then enable **Bitbucket**. Open the Bitbucket navigation entry and
 configure it for the active Kandev workspace:
 
-- For Cloud, provide the Bitbucket workspace slug or ID plus either an
-  Atlassian-account email/API token or an OAuth consumer registration.
-- A scoped Cloud API token needs `read:user:bitbucket`,
+- For Cloud, provide the Bitbucket workspace slug or ID. Select API token,
+  access token, or OAuth 2.0.
+- For an Atlassian account API token, provide the account email.
+  This mode uses Basic authentication for REST. The token needs `read:user:bitbucket`,
   `read:repository:bitbucket`, `write:repository:bitbucket`,
   `read:pullrequest:bitbucket`, and `write:pullrequest:bitbucket` for the full
-  workflow. OAuth consumers need Account read plus Repository and Pull request
+  workflow.
+- For a repository, project, or workspace access token, select
+  **Repository, project or workspace access token** (`access_token`).
+  This mode uses Bearer authentication for REST and `x-token-auth` for Git.
+  The token needs `repository`, `repository:write`, `pullrequest`, and
+  `pullrequest:write` for the full workflow.
+  The plugin does not require an account email or an OAuth registration.
+- OAuth consumers need Account read plus Repository and Pull request
   read/write permissions.
 - For Data Center, provide the full HTTPS base URL, then use the narrowest
   supported personal, project, repository, or OAuth credential.

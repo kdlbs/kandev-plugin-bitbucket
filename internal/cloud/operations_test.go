@@ -254,6 +254,98 @@ func TestCloudGetReviewMapsGoldenReviewData(t *testing.T) {
 	require.Equal(t, domain.Repository{ID: "{repo-forked-widgets}", ProviderScope: "https://bitbucket.org", Namespace: "forker", Slug: "forked-widgets", CloneURL: mustURL(t, "https://bitbucket.org/forker/forked-widgets.git")}, review.PullRequest.SourceRepository)
 }
 
+func TestCloudAccessTokenReviewsDoNotRequireAccountScope(t *testing.T) {
+	pullRequest, err := os.ReadFile("testdata/review-pullrequest.json")
+	require.NoError(t, err)
+	diff, err := os.ReadFile("testdata/review.diff")
+	require.NoError(t, err)
+
+	for _, test := range []struct {
+		name       string
+		projection domain.ReviewProjection
+	}{
+		{name: "full", projection: domain.FullReviewProjection()},
+		{name: "review panel", projection: domain.ReviewProjection{
+			Files: true, Participants: true, Threads: true, Statuses: true, Viewer: true,
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var paths []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				paths = append(paths, r.URL.Path)
+				require.Equal(t, "Bearer scoped-token", r.Header.Get("Authorization"))
+				switch r.URL.Path {
+				case "/2.0/user":
+					http.Error(w, "account scope is unavailable", http.StatusForbidden)
+				case "/2.0/repositories/acme/widgets/pullrequests/42":
+					_, _ = w.Write(pullRequest)
+				case "/2.0/repositories/acme/widgets/pullrequests/42/diff":
+					_, _ = w.Write(diff)
+				case "/2.0/repositories/acme/widgets/pullrequests/42/diffstat",
+					"/2.0/repositories/acme/widgets/pullrequests/42/commits",
+					"/2.0/repositories/acme/widgets/pullrequests/42/comments",
+					"/2.0/repositories/acme/widgets/commit/source-hash/statuses":
+					_, _ = w.Write([]byte(`{"values":[]}`))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			baseURL, err := url.Parse(server.URL + "/2.0")
+			require.NoError(t, err)
+			client := NewClient(ClientOptions{
+				APIBase: baseURL, HTTPClient: server.Client(), TokenSource: staticTokenSource("scoped-token"),
+				Authentication: Authentication{Mode: AuthenticationAccessToken},
+			})
+
+			review, err := client.GetReviewProjected(context.Background(), domain.Repository{Namespace: "acme", Slug: "widgets"}, 42, test.projection)
+			require.NoError(t, err)
+			require.Equal(t, 42, review.PullRequest.Number)
+			require.NotEmpty(t, review.Participants)
+			require.Empty(t, review.ViewerID)
+			require.NotContains(t, paths, "/2.0/user")
+			require.Contains(t, paths, "/2.0/repositories/acme/widgets/pullrequests/42/diffstat")
+			require.Contains(t, paths, "/2.0/repositories/acme/widgets/pullrequests/42/comments")
+			require.Contains(t, paths, "/2.0/repositories/acme/widgets/commit/source-hash/statuses")
+			if test.projection.Diff {
+				require.Equal(t, string(diff), review.Diff)
+				require.Contains(t, paths, "/2.0/repositories/acme/widgets/pullrequests/42/commits")
+			}
+		})
+	}
+}
+
+func TestCloudAccountReviewsPreserveViewerErrors(t *testing.T) {
+	pullRequest, err := os.ReadFile("testdata/review-pullrequest.json")
+	require.NoError(t, err)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/2.0/repositories/acme/widgets/pullrequests/42":
+			_, _ = w.Write(pullRequest)
+		case "/2.0/user":
+			http.Error(w, "account scope is unavailable", http.StatusForbidden)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	baseURL, err := url.Parse(server.URL + "/2.0")
+	require.NoError(t, err)
+
+	for _, mode := range []AuthenticationMode{AuthenticationOAuth, AuthenticationAPIToken} {
+		t.Run(string(mode), func(t *testing.T) {
+			client := NewClient(ClientOptions{
+				APIBase: baseURL, HTTPClient: server.Client(), TokenSource: staticTokenSource("account-token"),
+				Authentication: Authentication{Mode: mode, Email: "dev@example.test"},
+			})
+			_, err := client.GetReviewProjected(context.Background(), domain.Repository{Namespace: "acme", Slug: "widgets"}, 42, domain.ReviewProjection{Viewer: true})
+			var providerErr *domain.ProviderHTTPError
+			require.ErrorAs(t, err, &providerErr)
+			require.Equal(t, http.StatusForbidden, providerErr.Status)
+		})
+	}
+}
+
 func TestCloudProjectedReviewSkipsDiffFilesCommitsCommentsAndViewer(t *testing.T) {
 	pullRequest, err := os.ReadFile("testdata/review-pullrequest.json")
 	require.NoError(t, err)

@@ -472,23 +472,25 @@ export function changeRequestDetailActions(
   const can = (capability: string) => detail.capabilities.includes(capability);
   const actions: HostChangeRequestDetailAction[] = [];
   if (can("approve")) {
-    actions.push(
-      detail.viewerApproved
-        ? {
-            id: "unapprove",
-            label: t("removeApproval"),
-            pendingLabel: t("removingApproval"),
-            placement: "header",
-            tone: "secondary",
-          }
-        : {
-            id: "approve",
-            label: t("approve"),
-            pendingLabel: t("approving"),
-            placement: "header",
-            tone: "success",
-          },
-    );
+    const approveAction = {
+      id: "approve",
+      label: t("approve"),
+      pendingLabel: t("approving"),
+      placement: "header" as const,
+      tone: "success" as const,
+    };
+    const unapproveAction = {
+      id: "unapprove",
+      label: t("removeApproval"),
+      pendingLabel: t("removingApproval"),
+      placement: "header" as const,
+      tone: "secondary" as const,
+    };
+    if (detail.viewerApproved === undefined) {
+      actions.push(approveAction, unapproveAction);
+    } else {
+      actions.push(detail.viewerApproved ? unapproveAction : approveAction);
+    }
   }
   if (can("merge")) {
     actions.push({

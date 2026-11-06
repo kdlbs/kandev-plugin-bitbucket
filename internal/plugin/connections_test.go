@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"kandev-plugin-bitbucket/internal/auth"
+	"kandev-plugin-bitbucket/internal/cloud"
 	"kandev-plugin-bitbucket/internal/datacenter"
 	"kandev-plugin-bitbucket/internal/domain"
 
@@ -178,6 +179,7 @@ func TestConnectionResolver_RequiresInitialTokenCredential(t *testing.T) {
 		name  string
 		input ConnectionInput
 	}{
+		{name: "cloud access token", input: ConnectionInput{Product: domain.ProductCloud, CloudWorkspace: "acme", AuthMethod: "access_token"}},
 		{name: "cloud api token", input: ConnectionInput{Product: domain.ProductCloud, CloudWorkspace: "acme", AuthMethod: "api_token", AuthIdentity: "dev@example.test"}},
 		{name: "data center user PAT", input: ConnectionInput{Product: domain.ProductDataCenter, BaseURL: "https://bitbucket.example.test", AuthMethod: "user_pat", AuthIdentity: "dev"}},
 		{name: "data center project token", input: ConnectionInput{Product: domain.ProductDataCenter, BaseURL: "https://bitbucket.example.test", AuthMethod: "project_token"}},
@@ -1035,4 +1037,49 @@ func (*connectionHost) EmitEvent(context.Context, string, map[string]any) error 
 func flatten(value any) string {
 	encoded, _ := json.Marshal(value)
 	return string(encoded)
+}
+
+func TestCloudAccessTokenRequiresCloudButNotEmailOrOAuthRegistration(t *testing.T) {
+	settings := ConnectionSettings{Product: domain.ProductCloud, CloudWorkspace: "acme", AuthMethod: "access_token"}
+	require.NoError(t, validateConnection(settings))
+	authentication, err := cloudAuthentication(settings)
+	require.NoError(t, err)
+	require.Equal(t, cloud.AuthenticationAccessToken, authentication.Mode)
+	settings.Product = domain.ProductDataCenter
+	require.ErrorContains(t, validateConnectionAuthentication(settings), "requires Bitbucket Cloud")
+}
+
+func TestConnectionResolver_UsesCloudAccessTokenWithoutOAuthOrEmail(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		require.Equal(t, "Bearer scoped-access-token", request.Header.Get("Authorization"))
+		require.Equal(t, "/2.0/repositories/acme", request.URL.Path)
+
+		_, _ = writer.Write([]byte(`{"values":[]}`))
+	}))
+	defer server.Close()
+
+	host := newConnectionHost()
+	resolver, err := NewConnectionResolver(host)
+	require.NoError(t, err)
+	resolver.httpClient = server.Client()
+	resolver.cloudAPIBaseOverride, err = url.Parse(server.URL + "/2.0")
+	require.NoError(t, err)
+	settings, err := resolver.Save(context.Background(), "workspace-1", ConnectionInput{
+		Product: domain.ProductCloud, CloudWorkspace: "acme",
+		AuthMethod: "access_token", Token: "scoped-access-token",
+	})
+	require.NoError(t, err)
+	require.Empty(t, settings.AuthIdentity)
+	require.Zero(t, settings.OAuthGeneration)
+	require.NotContains(t, flatten(host.state), "scoped-access-token")
+
+	provider, err := resolver.Provider(context.Background(), "workspace-1")
+	require.NoError(t, err)
+	_, err = provider.ListRepositories(context.Background(), "widget", 1)
+	require.NoError(t, err)
+	require.NoError(t, provider.Health(context.Background()))
+	credential, err := provider.ResolveGitCredential(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "x-token-auth", credential.Username)
+	require.Equal(t, "scoped-access-token", credential.Secret)
 }

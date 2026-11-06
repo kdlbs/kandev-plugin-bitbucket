@@ -106,7 +106,8 @@ func (c *Client) GetReviewProjected(ctx context.Context, repository domain.Repos
 		}
 	}
 	viewerID := ""
-	if projection.Viewer {
+	// Scoped access tokens do not require access to a personal account.
+	if projection.Viewer && c.authentication.Mode != AuthenticationAccessToken {
 		viewerID, err = c.currentUserID(ctx)
 		if err != nil {
 			return domain.Review{}, err
@@ -180,6 +181,10 @@ func (c *Client) ApplyReviewAction(ctx context.Context, pullRequest domain.PullR
 	return c.MutatePullRequest(ctx, pullRequest.Repository, pullRequest.Number, action)
 }
 func (c *Client) Health(ctx context.Context) error {
+	if c.authentication.Mode == AuthenticationAccessToken {
+		_, err := c.ListRepositories(ctx, c.authentication.Workspace, 1)
+		return err
+	}
 	endpoint := *c.apiBase
 	endpoint.Path = path.Join(endpoint.Path, "user")
 	var value map[string]any

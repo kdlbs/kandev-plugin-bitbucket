@@ -133,6 +133,12 @@ func TestCloudAuthenticationSelectsExactRESTAndGitSchemes(t *testing.T) {
 			wantGitUsername:   "x-bitbucket-api-token-auth",
 		},
 		{
+			name:              "access token",
+			authentication:    Authentication{Mode: AuthenticationAccessToken},
+			wantAuthorization: "Bearer oauth-token",
+			wantGitUsername:   "x-token-auth",
+		},
+		{
 			name:              "oauth",
 			authentication:    Authentication{Mode: AuthenticationOAuth},
 			wantAuthorization: "Bearer oauth-token",

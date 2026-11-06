@@ -59,6 +59,11 @@ func validateConnectionAuthentication(settings ConnectionSettings) error {
 			return fmt.Errorf("Bitbucket Data Center OAuth Git username is required")
 		}
 		return nil
+	case "access_token":
+		if settings.Product != domain.ProductCloud {
+			return fmt.Errorf("access_token authentication requires Bitbucket Cloud")
+		}
+		return nil
 	case "api_token":
 		if settings.Product != domain.ProductCloud {
 			return fmt.Errorf("Bitbucket Data Center authentication method must be user_pat, project_token, repository_token, or oauth")
@@ -69,7 +74,7 @@ func validateConnectionAuthentication(settings ConnectionSettings) error {
 		return nil
 	case "user_pat":
 		if settings.Product != domain.ProductDataCenter {
-			return fmt.Errorf("Bitbucket Cloud authentication method must be api_token or oauth")
+			return fmt.Errorf("Bitbucket Cloud authentication method must be api_token, access_token, or oauth")
 		}
 		if strings.TrimSpace(settings.AuthIdentity) == "" {
 			return fmt.Errorf("Bitbucket Data Center user PAT username is required")
@@ -77,7 +82,7 @@ func validateConnectionAuthentication(settings ConnectionSettings) error {
 		return nil
 	case "project_token", "repository_token":
 		if settings.Product != domain.ProductDataCenter {
-			return fmt.Errorf("Bitbucket Cloud authentication method must be api_token or oauth")
+			return fmt.Errorf("Bitbucket Cloud authentication method must be api_token, access_token, or oauth")
 		}
 		return nil
 	default:
@@ -89,6 +94,8 @@ func cloudAuthentication(settings ConnectionSettings) (cloud.Authentication, err
 	switch normalizedAuthMethod(settings.AuthMethod) {
 	case "oauth":
 		return cloud.Authentication{Mode: cloud.AuthenticationOAuth}, nil
+	case "access_token":
+		return cloud.Authentication{Mode: cloud.AuthenticationAccessToken, Workspace: settings.CloudWorkspace}, nil
 	case "api_token":
 		return cloud.Authentication{Mode: cloud.AuthenticationAPIToken, Email: settings.AuthIdentity}, nil
 	default:

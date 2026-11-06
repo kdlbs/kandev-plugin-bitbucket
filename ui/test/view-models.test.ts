@@ -40,6 +40,10 @@ import {
 import { describe, expect, it } from "vitest";
 
 describe("Bitbucket view models", () => {
+  it("does not request an account email for Cloud scoped access tokens", () => {
+    expect(connectionIdentity("cloud", "access_token")).toBeNull();
+    expect(connectionIdentity("cloud", "api_token")?.inputType).toBe("email");
+  });
   it("builds workspace-scoped integration settings links with a global fallback", () => {
     expect(integrationSettingsHref("workspace one")).toBe(
       "/settings/workspaces/workspace%20one/integrations/bitbucket",

@@ -39,6 +39,7 @@ const english = {
   dataCenterUrl: "Data Center URL",
   authentication: "Authentication",
   apiToken: "API token",
+  cloudAccessToken: "Repository, project or workspace access token",
   oauth: "OAuth 2.0",
   personalAccessToken: "Personal access token",
   projectAccessToken: "Project access token",

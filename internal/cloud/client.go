@@ -47,15 +47,17 @@ type expiryAwareTokenSource interface {
 type AuthenticationMode string
 
 const (
-	AuthenticationOAuth    AuthenticationMode = "oauth"
-	AuthenticationAPIToken AuthenticationMode = "api_token"
+	AuthenticationOAuth       AuthenticationMode = "oauth"
+	AuthenticationAccessToken AuthenticationMode = "access_token"
+	AuthenticationAPIToken    AuthenticationMode = "api_token"
 )
 
 // Authentication contains non-secret Cloud authentication data.
 // Email is required only for API-token Basic authentication.
 type Authentication struct {
-	Mode  AuthenticationMode
-	Email string
+	Mode      AuthenticationMode
+	Email     string
+	Workspace string
 }
 
 // ClientOptions configures a Cloud client. APIBase exists for hermetic tests.
@@ -109,7 +111,7 @@ func NewClient(options ClientOptions) *Client {
 
 func (c *Client) authorize(request *http.Request, token string) error {
 	switch c.authentication.Mode {
-	case AuthenticationOAuth:
+	case AuthenticationOAuth, AuthenticationAccessToken:
 		request.Header.Set("Authorization", "Bearer "+token)
 	case AuthenticationAPIToken:
 		email := strings.TrimSpace(c.authentication.Email)
@@ -125,7 +127,7 @@ func (c *Client) authorize(request *http.Request, token string) error {
 
 func (c *Client) gitUsername() (string, error) {
 	switch c.authentication.Mode {
-	case AuthenticationOAuth:
+	case AuthenticationOAuth, AuthenticationAccessToken:
 		return "x-token-auth", nil
 	case AuthenticationAPIToken:
 		if strings.TrimSpace(c.authentication.Email) == "" {

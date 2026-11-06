@@ -8,7 +8,7 @@ type LiveTarget = {
   product: "cloud" | "data_center";
   baseUrl?: string;
   cloudWorkspace?: string;
-  authMethod: "api_token" | "user_pat" | "project_token" | "repository_token";
+  authMethod: "api_token" | "access_token" | "user_pat" | "project_token" | "repository_token";
   authIdentity?: string;
   token: string;
   kandevWorkspaceId?: string;
@@ -48,7 +48,7 @@ function liveTarget(): LiveTarget {
   }
   const authMethod = requiredEnvironment("KANDEV_BITBUCKET_LIVE_AUTH_METHOD");
   const allowedAuthMethods =
-    product === "cloud" ? ["api_token"] : ["user_pat", "project_token", "repository_token"];
+    product === "cloud" ? ["api_token", "access_token"] : ["user_pat", "project_token", "repository_token"];
   if (!allowedAuthMethods.includes(authMethod)) {
     throw new Error(
       `KANDEV_BITBUCKET_LIVE_AUTH_METHOD must be one of ${allowedAuthMethods.join(", ")} for ${product}`,
@@ -70,7 +70,9 @@ function liveTarget(): LiveTarget {
   target.authIdentity = optionalEnvironment("KANDEV_BITBUCKET_LIVE_AUTH_IDENTITY");
   if (product === "cloud") {
     target.cloudWorkspace = requiredEnvironment("KANDEV_BITBUCKET_LIVE_CLOUD_WORKSPACE");
-    target.authIdentity = requiredEnvironment("KANDEV_BITBUCKET_LIVE_AUTH_IDENTITY");
+    if (authMethod === "api_token") {
+      target.authIdentity = requiredEnvironment("KANDEV_BITBUCKET_LIVE_AUTH_IDENTITY");
+    }
   } else {
     target.baseUrl = requiredEnvironment("KANDEV_BITBUCKET_LIVE_BASE_URL");
     if (authMethod === "user_pat") {
