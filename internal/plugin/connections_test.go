@@ -1083,3 +1083,114 @@ func TestConnectionResolver_UsesCloudAccessTokenWithoutOAuthOrEmail(t *testing.T
 	require.Equal(t, "x-token-auth", credential.Username)
 	require.Equal(t, "scoped-access-token", credential.Secret)
 }
+
+func TestConnectionResolver_RejectsCrossProductAuthenticationMethods(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		method string
+	}{
+		{name: "user_pat", method: "user_pat"},
+		{name: "project_token", method: "project_token"},
+		{name: "repository_token", method: "repository_token"},
+	} {
+		t.Run("cloud "+test.name, func(t *testing.T) {
+			host := newConnectionHost()
+			resolver, err := NewConnectionResolver(host)
+			require.NoError(t, err)
+			_, err = resolver.Save(context.Background(), "workspace-1", ConnectionInput{
+				Product: domain.ProductCloud, CloudWorkspace: "acme", AuthMethod: test.method, Token: "token",
+			})
+			require.Error(t, err)
+			require.Empty(t, host.state)
+			require.Empty(t, host.secrets)
+		})
+	}
+	t.Run("data center access_token", func(t *testing.T) {
+		host := newConnectionHost()
+		resolver, err := NewConnectionResolver(host)
+		require.NoError(t, err)
+		_, err = resolver.Save(context.Background(), "workspace-1", ConnectionInput{
+			Product: domain.ProductDataCenter, BaseURL: "https://bitbucket.example.test", AuthMethod: "access_token", Token: "token",
+		})
+		require.ErrorContains(t, err, "requires Bitbucket Cloud")
+		require.Empty(t, host.state)
+		require.Empty(t, host.secrets)
+	})
+}
+
+func TestConnectionResolver_LoadsExistingCloudAccessTokenStateWithoutResave(t *testing.T) {
+	// A connection recorded before the current release that already stored a
+	// Cloud workspace or repository access token must keep loading and
+	// resolving after upgrade without a re-save, without being reinterpreted
+	// as an API token or as an OAuth client registration.
+	var paths []string
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		require.Equal(t, "Bearer legacy-scoped-token", r.Header.Get("Authorization"))
+		require.Equal(t, "/2.0/repositories/acme", r.URL.Path)
+		_, _ = w.Write([]byte(`{"values":[]}`))
+	}))
+	defer server.Close()
+
+	host := newConnectionHost()
+	resolver, err := NewConnectionResolver(host)
+	require.NoError(t, err)
+	resolver.httpClient = server.Client()
+	resolver.cloudAPIBaseOverride, err = url.Parse(server.URL + "/2.0")
+	require.NoError(t, err)
+	stored := ConnectionSettings{
+		Product: domain.ProductCloud, CloudWorkspace: "acme", AuthMethod: "access_token",
+		CredentialGeneration: 7,
+	}
+	value, err := encodeState(stored)
+	require.NoError(t, err)
+	require.NoError(t, host.SetState(context.Background(), "workspace", "workspace-1", connectionStateKey, value))
+	host.secrets[connectionSecretKey("workspace-1", 7)] = "legacy-scoped-token"
+
+	settings, found, err := resolver.Load(context.Background(), "workspace-1")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "access_token", settings.AuthMethod)
+	require.Equal(t, uint64(7), settings.CredentialGeneration)
+	require.Empty(t, settings.AuthIdentity, "an access-token connection must not gain an API-token email")
+	require.Zero(t, settings.OAuthGeneration, "an access-token connection must not gain an OAuth registration")
+	require.NotContains(t, flatten(host.state), "legacy-scoped-token")
+
+	provider, err := resolver.Provider(context.Background(), "workspace-1")
+	require.NoError(t, err)
+	_, err = provider.ListRepositories(context.Background(), "", 1)
+	require.NoError(t, err)
+	require.NoError(t, provider.Health(context.Background()))
+	credential, err := provider.ResolveGitCredential(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "x-token-auth", credential.Username)
+	require.Equal(t, "legacy-scoped-token", credential.Secret)
+}
+
+func TestConnectionResolver_HealthFailsTruthfullyForDeniedCloudAccessToken(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "Bearer denied-scoped-token", r.Header.Get("Authorization"))
+		require.Equal(t, "/2.0/repositories/acme", r.URL.Path)
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error": {"message": "token lacks workspace read"}}`))
+	}))
+	defer server.Close()
+
+	host := newConnectionHost()
+	resolver, err := NewConnectionResolver(host)
+	require.NoError(t, err)
+	resolver.httpClient = server.Client()
+	resolver.cloudAPIBaseOverride, err = url.Parse(server.URL + "/2.0")
+	require.NoError(t, err)
+	_, err = resolver.Save(context.Background(), "workspace-1", ConnectionInput{
+		Product: domain.ProductCloud, CloudWorkspace: "acme", AuthMethod: "access_token", Token: "denied-scoped-token",
+	})
+	require.NoError(t, err)
+	provider, err := resolver.Provider(context.Background(), "workspace-1")
+	require.NoError(t, err)
+
+	err = provider.Health(context.Background())
+	var providerErr *domain.ProviderHTTPError
+	require.ErrorAs(t, err, &providerErr)
+	require.Equal(t, http.StatusForbidden, providerErr.Status)
+}

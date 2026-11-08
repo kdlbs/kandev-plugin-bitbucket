@@ -480,3 +480,87 @@ func mustURL(t *testing.T, raw string) *url.URL {
 	require.NoError(t, err)
 	return value
 }
+
+func TestCloudAccessTokenHealthReflectsScopedPermissions(t *testing.T) {
+	// A workspace or repository access token proves health through the exact
+	// scoped workspace listing. Health must fail truthfully for missing,
+	// expired, or denied tokens instead of marking a denied connection green
+	// merely because the account profile endpoint is unsupported.
+	for _, test := range []struct {
+		name          string
+		workspacePath string
+		status        int
+		wantStatus    int
+	}{
+		{name: "healthy scoped token", workspacePath: "/2.0/repositories/acme", status: http.StatusOK},
+		{name: "missing or expired token fails truthfully", workspacePath: "/2.0/repositories/acme", status: http.StatusUnauthorized, wantStatus: http.StatusUnauthorized},
+		// A token scoped to another workspace, or one without read access,
+		// gets denied on the configured workspace listing either way.
+		{name: "denied workspace read fails truthfully", workspacePath: "/2.0/repositories/acme", status: http.StatusForbidden, wantStatus: http.StatusForbidden},
+		{name: "wrong workspace token fails truthfully", workspacePath: "/2.0/repositories/acme", status: http.StatusForbidden, wantStatus: http.StatusForbidden},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var paths []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				paths = append(paths, r.URL.Path)
+				require.Equal(t, "Bearer scoped-token", r.Header.Get("Authorization"))
+				require.Equal(t, "1", r.URL.Query().Get("pagelen"))
+				if test.status == http.StatusOK && r.URL.Path == test.workspacePath {
+					_, _ = w.Write([]byte(`{"values":[]}`))
+					return
+				}
+				if r.URL.Path != test.workspacePath {
+					http.NotFound(w, r)
+					return
+				}
+				w.WriteHeader(test.status)
+				_, _ = w.Write([]byte(`{"error": {"message": "scoped token denied"}}`))
+			}))
+			defer server.Close()
+			baseURL, err := url.Parse(server.URL + "/2.0")
+			require.NoError(t, err)
+			client := NewClient(ClientOptions{
+				APIBase: baseURL, HTTPClient: server.Client(), TokenSource: staticTokenSource("scoped-token"),
+				Authentication: Authentication{Mode: AuthenticationAccessToken, Workspace: "acme"},
+			})
+
+			err = client.Health(context.Background())
+			require.NotContains(t, paths, "/2.0/user", "scoped access tokens never touch the account profile")
+			if test.wantStatus == 0 {
+				require.NoError(t, err)
+				require.Equal(t, []string{test.workspacePath}, paths)
+				return
+			}
+			var providerErr *domain.ProviderHTTPError
+			require.ErrorAs(t, err, &providerErr)
+			require.Equal(t, test.wantStatus, providerErr.Status)
+			require.Equal(t, []string{test.workspacePath}, paths)
+		})
+	}
+}
+
+func TestCloudAccountTokenHealthStillVerifiesAccountProfile(t *testing.T) {
+	for _, mode := range []AuthenticationMode{AuthenticationOAuth, AuthenticationAPIToken} {
+		t.Run(string(mode), func(t *testing.T) {
+			var paths []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				paths = append(paths, r.URL.Path)
+				if r.URL.Path == "/2.0/user" {
+					_, _ = w.Write([]byte(`{"account_id": "user-1"}`))
+					return
+				}
+				http.NotFound(w, r)
+			}))
+			defer server.Close()
+			baseURL, err := url.Parse(server.URL + "/2.0")
+			require.NoError(t, err)
+			client := NewClient(ClientOptions{
+				APIBase: baseURL, HTTPClient: server.Client(), TokenSource: staticTokenSource("account-token"),
+				Authentication: Authentication{Mode: mode, Email: "dev@example.test"},
+			})
+
+			require.NoError(t, client.Health(context.Background()))
+			require.Equal(t, []string{"/2.0/user"}, paths)
+		})
+	}
+}
