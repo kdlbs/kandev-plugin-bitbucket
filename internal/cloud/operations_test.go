@@ -57,6 +57,51 @@ func TestCloudListsBranchesAndPullRequestsWithV2QueryPagination(t *testing.T) {
 	require.Equal(t, "https://bitbucket.org/acme/widgets.git", gotPullRequests[0].Repository.CloneURL.String())
 }
 
+func TestCloudListBranchesPagesThroughAllBranches(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "Bearer cloud-token", r.Header.Get("Authorization"))
+		require.Equal(t, "/2.0/repositories/acme/widgets/refs/branches", r.URL.Path)
+		require.Equal(t, "100", r.URL.Query().Get("pagelen"))
+		switch r.URL.Query().Get("page") {
+		case "":
+			_, _ = w.Write([]byte(`{"values":[{"name":"one","target":{"hash":"hash-1"}},{"name":"two","target":{"hash":"hash-2"}}],"next":"/2.0/repositories/acme/widgets/refs/branches?page=2&pagelen=100"}`))
+		case "2":
+			_, _ = w.Write([]byte(`{"values":[{"name":"three","target":{"hash":"hash-3"}}],"next":"/2.0/repositories/acme/widgets/refs/branches?page=3&pagelen=100"}`))
+		case "3":
+			_, _ = w.Write([]byte(`{"values":[{"name":"four","target":{"hash":"hash-4"}}]}`))
+		default:
+			t.Fatalf("unexpected branch page %q", r.URL.Query().Get("page"))
+		}
+	}))
+	defer server.Close()
+	baseURL, err := url.Parse(server.URL + "/2.0")
+	require.NoError(t, err)
+	client := NewClient(ClientOptions{APIBase: baseURL, TokenSource: staticTokenSource("cloud-token")})
+
+	branches, err := client.ListBranches(context.Background(), domain.Repository{Namespace: "acme", Slug: "widgets"})
+	require.NoError(t, err)
+	require.Equal(t, []domain.Branch{
+		{Name: "one", Commit: "hash-1"},
+		{Name: "two", Commit: "hash-2"},
+		{Name: "three", Commit: "hash-3"},
+		{Name: "four", Commit: "hash-4"},
+	}, branches)
+}
+
+func TestCloudListBranchesRejectsEndlessPagination(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/2.0/repositories/acme/widgets/refs/branches", r.URL.Path)
+		_, _ = w.Write([]byte(`{"values":[{"name":"one","target":{"hash":"hash-1"}}],"next":"/2.0/repositories/acme/widgets/refs/branches?page=2"}`))
+	}))
+	defer server.Close()
+	baseURL, err := url.Parse(server.URL + "/2.0")
+	require.NoError(t, err)
+	client := NewClient(ClientOptions{APIBase: baseURL, TokenSource: staticTokenSource("cloud-token")})
+
+	_, err = client.ListBranches(context.Background(), domain.Repository{Namespace: "acme", Slug: "widgets"})
+	require.ErrorContains(t, err, "Cloud branch pagination limit exceeded")
+}
+
 func TestCloudSearchPullRequestsPagePreservesProviderCursorAndAuthor(t *testing.T) {
 	requests := 0
 	var server *httptest.Server
